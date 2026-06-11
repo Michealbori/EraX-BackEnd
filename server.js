@@ -27,21 +27,34 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// CORS
+// ✅ UPDATED CORS - Allow all production URLs
 app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:5173",
-    "https://Michealbori.github.io",
-    "https://Michealbori.github.io/EraX-FrontEnd"
+    "https://michealbori.github.io",
+    "https://michealbori.github.io/EraX-FrontEnd",
+    "https://michealbori.github.io/EraX",
+    "https://erax-backend-o3hb.onrender.com"
   ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
+  allowedHeaders: [
+    "Content-Type", 
+    "Authorization", 
+    "X-Requested-With",
+    "Accept",
+    "Origin"
+  ],
+  exposedHeaders: ["Content-Range", "X-Content-Range"],
+  maxAge: 600 // 10 minutes cache for preflight requests
 }));
 
-app.use(express.json());
-app.use(express.urlencoded({ extended: true }));
+// Handle preflight OPTIONS requests
+app.options('*', cors());
+
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // Serve static files
 app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
@@ -69,6 +82,7 @@ console.log('EMAIL_USER:', process.env.EMAIL_USER);
 console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? `✓ Set (${process.env.EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
 console.log('DEPOSIT_EMAIL_USER:', process.env.DEPOSIT_EMAIL_USER);
 console.log('DEPOSIT_EMAIL_PASS:', process.env.DEPOSIT_EMAIL_PASS ? `✓ Set (${process.env.DEPOSIT_EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
+console.log('NODE_ENV:', process.env.NODE_ENV || 'development');
 console.log('='.repeat(70) + '\n');
 
 // Health check endpoint
@@ -76,7 +90,26 @@ app.get("/api/health", (req, res) => {
   res.json({ 
     success: true, 
     message: "EraX API is running",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    environment: process.env.NODE_ENV || 'development',
+    version: "1.0.0"
+  });
+});
+
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({
+    success: true,
+    message: "Welcome to EraX API",
+    endpoints: {
+      health: "/api/health",
+      auth: "/api/auth",
+      identity: "/api/identity",
+      investment: "/api/investment",
+      deposit: "/api/deposit",
+      withdrawal: "/api/withdrawal",
+      admin: "/api/admin"
+    }
   });
 });
 
@@ -104,8 +137,10 @@ verifyEmailConnections();
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`🚀 EraX Server running on port ${PORT}`);
-  console.log(` Static files served from: ${path.join(__dirname, "public/uploads")}`);
+  console.log(`\n🚀 EraX Server running on port ${PORT}`);
+  console.log(`📁 Static files served from: ${path.join(__dirname, "public/uploads")}`);
+  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`📡 CORS enabled for: Michealbori.github.io\n`);
 });
 
 console.log('📧 Email User:', process.env.EMAIL_USER);
