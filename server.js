@@ -23,56 +23,32 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ CORS CONFIGURATION - MUST BE FIRST
-const corsOptions = {
-  origin: function (origin, callback) {
-    // Allow requests with no origin (like mobile apps or curl)
-    if (!origin) return callback(null, true);
-    
-    const allowedOrigins = [
-      'http://localhost:3000',
-      'http://localhost:5173',
-      'https://michealbori.github.io',
-      'https://michealbori.github.io/EraX',
-      'https://michealbori.github.io/EraX-FrontEnd',
-      'https://erax-backend-o3hb.onrender.com'
-    ];
-    
-    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('github.io')) {
-      callback(null, true);
-    } else {
-      console.log('Blocked by CORS:', origin);
-      callback(null, true); // Allow anyway for testing
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With', 'Accept', 'Origin'],
-  exposedHeaders: ['Content-Range', 'X-Content-Range']
-};
-
-app.use(cors(corsOptions));
-
-// ✅ MANUAL CORS MIDDLEWARE - GUARANTEED TO WORK
+// ✅ BULLETPROOF CORS - MUST BE FIRST
 app.use((req, res, next) => {
-  const requestOrigin = req.headers.origin;
+  // Allow ALL origins (for production)
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, PATCH, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin");
+  res.header("Access-Control-Allow-Credentials", "true");
+  res.header("Access-Control-Expose-Headers", "Content-Range, X-Content-Range");
   
-  // Set CORS headers
-  res.header('Access-Control-Allow-Origin', requestOrigin || '*');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, PATCH, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With, Accept, Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Expose-Headers', 'Content-Range, X-Content-Range');
-  
-  // Handle preflight requests
-  if (req.method === 'OPTIONS') {
-    console.log('✅ Preflight request handled for:', req.originalUrl);
+  // Handle preflight
+  if (req.method === "OPTIONS") {
+    console.log("✅ Preflight handled for:", req.headers.origin);
     return res.sendStatus(200);
   }
   
-  console.log('📡 CORS allowed for:', requestOrigin || 'no origin');
+  console.log("📡 Request from:", req.headers.origin || "no origin");
   next();
 });
+
+// Also use cors middleware
+app.use(cors({
+  origin: true, // Accept all origins
+  credentials: true,
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"]
+}));
 
 // Parse requests
 app.use(express.json({ limit: '10mb' }));
@@ -95,18 +71,21 @@ app.use("/api/transit", transitRoutes);
 app.use("/api/admin", adminRoutes);
 app.use('/api/test', testRoutes);
 
-// Health check
+// Health check with CORS
 app.get("/api/health", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.json({ 
     success: true, 
     message: "EraX API is running",
     timestamp: new Date().toISOString(),
-    cors: "enabled"
+    cors: "enabled",
+    origin: req.headers.origin
   });
 });
 
 // Root endpoint
 app.get("/", (req, res) => {
+  res.header("Access-Control-Allow-Origin", req.headers.origin || "*");
   res.json({
     success: true,
     message: "Welcome to EraX API",
@@ -139,8 +118,8 @@ verifyEmailConnections();
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`\n🚀 EraX Server running on port ${PORT}`);
-  console.log(`✅ CORS enabled for GitHub Pages`);
-  console.log(`🌐 Environment: ${process.env.NODE_ENV || 'production'}\n`);
+  console.log(`✅ CORS enabled for ALL origins`);
+  console.log(`🌐 Environment: production\n`);
 });
 
 export default app;
