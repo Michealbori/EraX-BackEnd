@@ -5,7 +5,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import connectDB from "./config/db.js";
 
-// Import routes - ✅ Correct file names
+// Import routes
 import authRoutes from "./routes/auth.routes.js";
 import identityRoutes from "./routes/identity.routes.js";
 import investmentRoutes from "./routes/investment.routes.js";
@@ -26,12 +26,17 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Middleware
+// ✅ CORS - Updated with GitHub Pages URLs
 app.use(cors({
-  origin: ["http://localhost:3000", "http://localhost:5173"],
+  origin: [
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "https://Michealbori.github.io",
+    "https://Michealbori.github.io/EraX"
+  ],
   credentials: true,
-  methods: ["GET", "POST", "PUT", "DELETE", "PATCH"],
-  allowedHeaders: ["Content-Type", "Authorization"]
+  methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"]
 }));
 
 app.use(express.json());
@@ -54,7 +59,6 @@ app.use("/api/transit", transitRoutes);
 app.use("/api/admin", adminRoutes);
 app.use('/api/test', testRoutes);
 
-
 // 🔍 DEBUG: Check if .env is loaded
 console.log('\n' + '='.repeat(70));
 console.log('🔍 DEBUG: CHECKING .ENV FILE');
@@ -62,7 +66,6 @@ console.log('='.repeat(70));
 console.log('PORT:', process.env.PORT);
 console.log('EMAIL_USER:', process.env.EMAIL_USER);
 console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? `✓ Set (${process.env.EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
-console.log('EMAIL_PASS value:', process.env.EMAIL_PASS);
 console.log('DEPOSIT_EMAIL_USER:', process.env.DEPOSIT_EMAIL_USER);
 console.log('DEPOSIT_EMAIL_PASS:', process.env.DEPOSIT_EMAIL_PASS ? `✓ Set (${process.env.DEPOSIT_EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
 console.log('='.repeat(70) + '\n');
@@ -93,15 +96,19 @@ app.use((req, res) => {
     message: `Route ${req.originalUrl} not found`
   });
 });
+
 // ✅ Verify email connections
 import { verifyEmailConnections } from './config/email.js';
 verifyEmailConnections();
+
 // Start server
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
   console.log(`🚀 EraX Server running on port ${PORT}`);
   console.log(`📁 Static files served from: ${path.join(__dirname, "public/uploads")}`);
 });
+
 console.log('📧 Email User:', process.env.EMAIL_USER);
 console.log('🔑 Email Pass:', process.env.EMAIL_PASS ? '***configured***' : 'NOT SET');
+
 export default app;
