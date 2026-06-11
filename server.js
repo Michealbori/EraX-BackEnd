@@ -3,18 +3,19 @@ import cors from "cors";
 import dotenv from "dotenv";
 import path from "path";
 import { fileURLToPath } from "url";
-import connectDB from "./config/db.js";
 
-// Import routes
-import authRoutes from "./routes/auth.routes.js";
-import identityRoutes from "./routes/identity.routes.js";
-import investmentRoutes from "./routes/investment.routes.js";
-import depositRoutes from "./routes/deposit.routes.js";
-import withdrawalRoutes from "./routes/withdrawal.routes.js";
-import ledgerRoutes from "./routes/ledger.routes.js";
-import transitRoutes from "./routes/transit.routes.js";
-import adminRoutes from "./routes/admin/index.js";
-import testRoutes from './routes/test.routes.js';
+// ✅ UPDATED IMPORTS - Add ./src/ prefix
+import connectDB from "./src/config/db.js";
+import authRoutes from "./src/routes/auth.routes.js";
+import identityRoutes from "./src/routes/identity.routes.js";
+import investmentRoutes from "./src/routes/investment.routes.js";
+import depositRoutes from "./src/routes/deposit.routes.js";
+import withdrawalRoutes from "./src/routes/withdrawal.routes.js";
+import ledgerRoutes from "./src/routes/ledger.routes.js";
+import transitRoutes from "./src/routes/transit.routes.js";
+import adminRoutes from "./src/routes/admin/index.js";
+import testRoutes from './src/routes/test.routes.js';
+import { verifyEmailConnections } from './src/config/email.js';
 
 // Load environment variables
 dotenv.config();
@@ -26,13 +27,13 @@ const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// ✅ CORS - Updated with GitHub Pages URLs
+// CORS - Updated with GitHub Pages URLs
 app.use(cors({
   origin: [
     "http://localhost:3000",
     "http://localhost:5173",
     "https://Michealbori.github.io",
-    "https://Michealbori.github.io/EraX"
+    "https://Michealbori.github.io/EraX-FrontEnd"
   ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
@@ -42,7 +43,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
-// Serve static files for uploads
+// ✅ UPDATED: Serve static files - change path
 app.use("/uploads", express.static(path.join(__dirname, "public/uploads")));
 
 // Connect to database
@@ -59,13 +60,13 @@ app.use("/api/transit", transitRoutes);
 app.use("/api/admin", adminRoutes);
 app.use('/api/test', testRoutes);
 
-// 🔍 DEBUG: Check if .env is loaded
+// Debug logs
 console.log('\n' + '='.repeat(70));
 console.log('🔍 DEBUG: CHECKING .ENV FILE');
 console.log('='.repeat(70));
 console.log('PORT:', process.env.PORT);
 console.log('EMAIL_USER:', process.env.EMAIL_USER);
-console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? `✓ Set (${process.env.EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
+console.log('EMAIL_PASS:', process.env.EMAIL_PASS ? `✓ Set (${process.env.EMAIL_PASS.length} chars)` : ' EMPTY or NOT SET');
 console.log('DEPOSIT_EMAIL_USER:', process.env.DEPOSIT_EMAIL_USER);
 console.log('DEPOSIT_EMAIL_PASS:', process.env.DEPOSIT_EMAIL_PASS ? `✓ Set (${process.env.DEPOSIT_EMAIL_PASS.length} chars)` : '✗ EMPTY or NOT SET');
 console.log('='.repeat(70) + '\n');
@@ -81,7 +82,7 @@ app.get("/api/health", (req, res) => {
 
 // Error handling middleware
 app.use((err, req, res, next) => {
-  console.error("🚨 Framework Error:", err.stack);
+  console.error(" Framework Error:", err.stack);
   res.status(500).json({ 
     success: false, 
     message: "Something went wrong!",
@@ -97,8 +98,7 @@ app.use((req, res) => {
   });
 });
 
-// ✅ Verify email connections
-import { verifyEmailConnections } from './config/email.js';
+// Verify email connections
 verifyEmailConnections();
 
 // Start server
