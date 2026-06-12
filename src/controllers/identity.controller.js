@@ -3,7 +3,8 @@ import User from "../models/User.js";
 import { SURVEY_QUESTION_POOL, SURVEY_METADATA } from "../config/surveyQuestions.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-import { sendOTPEmail } from '../utils/sendEmail.js';
+// ✅ FIXED: Import from config/email.js instead of utils/sendEmail.js
+import { sendOTPEmail } from '../config/email.js';
 
 // Helper: Shuffle array and pick N items
 const getRandomQuestions = (pool, count) => {
