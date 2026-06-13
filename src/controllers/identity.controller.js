@@ -3,16 +3,13 @@ import User from "../models/User.js";
 import { SURVEY_QUESTION_POOL, SURVEY_METADATA } from "../config/surveyQuestions.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
-// ✅ FIXED: Import from config/email.js instead of utils/sendEmail.js
 import { sendOTPEmail } from '../config/email.js';
 
-// Helper: Shuffle array and pick N items
 const getRandomQuestions = (pool, count) => {
   const shuffled = [...pool].sort(() => 0.5 - Math.random());
   return shuffled.slice(0, count);
 };
 
-// Calculate early withdrawal penalty
 const calculateEarlyWithdrawal = (investment) => {
   const daysSinceInvestment = Math.floor(
     (new Date() - investment.investedAt) / (1000 * 60 * 60 * 24)
@@ -45,14 +42,12 @@ const calculateEarlyWithdrawal = (investment) => {
   };
 };
 
-// Generate JWT Token
 const generateToken = (id) => {
   return jwt.sign({ id }, process.env.JWT_SECRET || "erax_secret_key", {
     expiresIn: "30d"
   });
 };
 
-// Generate OTP
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
@@ -63,11 +58,12 @@ const generateOTP = () => {
 
 export const registerUserNode = async (req, res) => {
   try {
-    const { email, password, fullName, firstName, lastName } = req.body;
+    const { email, password, fullName, firstName, lastName, referralCode } = req.body;
 
     console.log("\n" + "=".repeat(60));
     console.log("📝 [REGISTER] Starting registration process");
     console.log("Email:", email);
+    console.log("Referral Code:", referralCode || "None");
     console.log("=".repeat(60));
 
     if (!email || !password) {
@@ -95,7 +91,20 @@ export const registerUserNode = async (req, res) => {
     console.log("\n🔐 Generated OTP:", otp);
     console.log("📅 OTP expires:", otpExpires);
 
-    // ✅ CREATE USER WITH OTP
+    // ✅ Handle referral code
+    let referredBy = null;
+    
+    if (referralCode) {
+      const referrer = await User.findOne({ referralCode: referralCode });
+      if (referrer) {
+        referredBy = referrer._id;
+        console.log("✅ User referred by:", referrer.email);
+        console.log("✅ Referrer ID:", referrer._id);
+      } else {
+        console.log("⚠️ Invalid referral code:", referralCode);
+      }
+    }
+
     const user = await User.create({
       email: email.toLowerCase().trim(),
       password: hashedPassword,
@@ -107,6 +116,7 @@ export const registerUserNode = async (req, res) => {
       otp: otp,
       otpExpires: otpExpires,
       authProvider: 'email',
+      referredBy: referredBy,
       balances: {
         availableLiquidity: 0,
         totalDeposited: 0,
@@ -119,8 +129,8 @@ export const registerUserNode = async (req, res) => {
 
     console.log("✅ User created in database");
     console.log("✅ OTP saved to database:", user.otp);
+    console.log("✅ Referred by:", referredBy || "None");
 
-    // ✅ SEND OTP EMAIL
     console.log("\n📤 Attempting to send OTP email...");
     console.log("To:", email);
     console.log("OTP:", otp);
@@ -188,7 +198,6 @@ export const loginUserNode = async (req, res) => {
       });
     }
 
-    // ✅ CHECK IF USER HAS A PASSWORD
     if (!user.password) {
       console.log("⚠️ User has no password (Google account):", email);
       return res.status(401).json({
@@ -197,7 +206,6 @@ export const loginUserNode = async (req, res) => {
       });
     }
 
-    // ✅ COMPARE PASSWORD
     console.log("🔐 Comparing password for:", email);
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
@@ -211,7 +219,6 @@ export const loginUserNode = async (req, res) => {
 
     console.log("✅ Password valid for:", email);
 
-    // Update last login
     user.lastLoginAt = new Date();
     user.lastIp = req.ip || req.connection.remoteAddress;
     await user.save();
@@ -271,7 +278,6 @@ export const verifyOtpToken = async (req, res) => {
     console.log("📅 Current time:", new Date());
     console.log("📅 Is expired?", user.otpExpires ? user.otpExpires < new Date() : 'No expiry date');
 
-    // ✅ Check if OTP exists
     if (!user.otp || user.otp === null) {
       console.log("❌ No OTP found in database!");
       return res.status(400).json({ 
@@ -280,7 +286,6 @@ export const verifyOtpToken = async (req, res) => {
       });
     }
 
-    // ✅ Check if OTP matches (convert both to string for comparison)
     if (String(user.otp) !== String(otp)) {
       console.log("❌ OTP MISMATCH!");
       console.log("Expected:", user.otp);
@@ -288,7 +293,6 @@ export const verifyOtpToken = async (req, res) => {
       return res.status(400).json({ success: false, message: "Invalid OTP" });
     }
 
-    // ✅ Check if OTP is expired
     if (user.otpExpires && user.otpExpires < new Date()) {
       console.log("❌ OTP EXPIRED!");
       return res.status(400).json({ success: false, message: "OTP expired. Please request a new one." });
@@ -296,7 +300,6 @@ export const verifyOtpToken = async (req, res) => {
 
     console.log("✅ OTP VERIFIED SUCCESSFULLY!");
 
-    // ✅ Clear OTP after successful verification - use null instead of undefined
     user.isVerified = true;
     user.otp = null;
     user.otpExpires = null;
@@ -343,14 +346,12 @@ export const resendOtpToken = async (req, res) => {
       });
     }
 
-    // ✅ Generate NEW OTP
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
     console.log("🔐 Generated NEW OTP:", otp);
     console.log("📅 OTP expires at:", otpExpires);
 
-    // ✅ UPDATE user with new OTP using findOneAndUpdate (more reliable)
     const updatedUser = await User.findOneAndUpdate(
       { email: email.toLowerCase().trim() },
       { 
@@ -373,7 +374,6 @@ export const resendOtpToken = async (req, res) => {
     console.log("✅ User document updated in database");
     console.log("✅ New OTP in database:", updatedUser.otp);
 
-    // ✅ SEND OTP EMAIL
     try {
       console.log("📤 Sending OTP email...");
       const emailSent = await sendOTPEmail(email, otp);
@@ -885,7 +885,7 @@ export const getDashboardMetrics = async (req, res) => {
 };
 
 // =====================================================
-// REFERRAL FUNCTIONS
+// REFERRAL FUNCTIONS - ✅ UPDATED
 // =====================================================
 
 export const validateReferralCodeEndpoint = async (req, res) => {
@@ -917,6 +917,8 @@ export const getMyReferralCode = async (req, res) => {
   try {
     const { email } = req.params;
 
+    console.log("🔗 [GET REFERRAL CODE] Email:", email);
+
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     if (!user) {
@@ -924,14 +926,21 @@ export const getMyReferralCode = async (req, res) => {
     }
 
     if (!user.referralCode) {
-      user.referralCode = `ERAX-${user._id.toString().slice(-6).toUpperCase()}`;
+      user.referralCode = `ERAX-${user._id.toString().slice(-8).toUpperCase()}`;
       await user.save();
+      console.log("✅ Generated new referral code:", user.referralCode);
     }
+
+    const frontendUrl = process.env.FRONTEND_URL || 'https://erax.company';
+    const referralLink = `${frontendUrl}/#/register?ref=${user.referralCode}`;
+
+    console.log("✅ Referral code:", user.referralCode);
+    console.log("✅ Referral link:", referralLink);
 
     res.status(200).json({
       success: true,
       referralCode: user.referralCode,
-      referralLink: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/register?ref=${user.referralCode}`
+      referralLink: referralLink
     });
 
   } catch (error) {
@@ -944,6 +953,8 @@ export const getReferralStats = async (req, res) => {
   try {
     const { email } = req.params;
 
+    console.log("📊 [GET REFERRAL STATS] Email:", email);
+
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
     if (!user) {
@@ -952,11 +963,23 @@ export const getReferralStats = async (req, res) => {
 
     const referralCount = await User.countDocuments({ referredBy: user._id });
 
+    console.log("✅ Total referrals:", referralCount);
+
+    let earnings = 0;
+    if (referralCount >= 20) {
+      earnings = referralCount * 1;
+    } else if (referralCount >= 10) {
+      earnings = referralCount * 1;
+    }
+
+    console.log("✅ Calculated earnings:", earnings);
+
     res.status(200).json({
       success: true,
       stats: {
         totalReferrals: referralCount,
-        referralCode: user.referralCode || null
+        referralCode: user.referralCode || null,
+        earnings: earnings
       }
     });
 
