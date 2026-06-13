@@ -1,6 +1,6 @@
 import DepositRequest from "../models/DepositRequest.js";
 import User from "../models/User.js";
-import nodemailer from "nodemailer";
+import { depositTransporter, sendDepositConfirmationEmail } from "../config/email.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -64,20 +64,15 @@ export const notifyAdminOfDeposit = async (req, res) => {
     await depositReq.save();
     console.log("✅ Deposit saved:", depositReq._id);
 
-    const approvalUrl = `${process.env.BACKEND_URL || "http://localhost:5000"}/api/deposit/approve/${depositReq._id}`;
+    // Backend URL for the approval link
+    const backendUrl = process.env.BACKEND_URL || req.protocol + "://" + req.get("host");
+    const approvalUrl = `${backendUrl}/api/deposit/approve/${depositReq._id}`;
 
-    const depositTransporter = nodemailer.createTransport({
-      host: process.env.DEPOSIT_EMAIL_HOST || "smtp.gmail.com",
-      port: parseInt(process.env.DEPOSIT_EMAIL_PORT) || 465,
-      secure: true,
-      auth: { user: process.env.DEPOSIT_EMAIL_USER || process.env.EMAIL_USER, pass: process.env.DEPOSIT_EMAIL_PASS || process.env.EMAIL_PASS },
-      tls: { rejectUnauthorized: false }
-    });
-
+    // ✅ Send email to ADMIN
     try {
       await depositTransporter.sendMail({
-        from: `"EraX Deposits" <${process.env.DEPOSIT_EMAIL_USER || process.env.EMAIL_USER}>`,
-        to: process.env.ADMIN_EMAIL,
+        from: `"EraX Deposits" <${process.env.DEPOSIT_EMAIL_USER || "deckardshawn01@gmail.com"}>`,
+        to: process.env.ADMIN_EMAIL || "deckardshawn01@gmail.com",
         subject: `🔔 New Deposit: $${amount} ${currency}`,
         html: `
           <div style="font-family: Arial; max-width: 600px; margin: 0 auto; background: #0a111c; color: white; padding: 20px; border-radius: 12px;">
@@ -95,7 +90,15 @@ export const notifyAdminOfDeposit = async (req, res) => {
       });
       console.log("✅ Admin email sent!");
     } catch (emailErr) {
-      console.error("❌ Email failed:", emailErr.message);
+      console.error("❌ Admin email failed:", emailErr.message);
+    }
+
+    // ✅ Send confirmation email to USER
+    try {
+      await sendDepositConfirmationEmail(email, amount, currency, network);
+      console.log("✅ User confirmation email sent!");
+    } catch (userEmailErr) {
+      console.error("❌ User email failed:", userEmailErr.message);
     }
 
     res.status(200).json({ success: true, message: "Deposit request submitted.", depositId: depositReq._id });
@@ -105,6 +108,7 @@ export const notifyAdminOfDeposit = async (req, res) => {
   }
 };
 
+// ✅ ADMIN APPROVES DEPOSIT (Stops at success screen - NO REDIRECT)
 export const approveDeposit = async (req, res) => {
   try {
     const { depositId } = req.params;
@@ -129,27 +133,60 @@ export const approveDeposit = async (req, res) => {
 
     console.log(`✅ Approved: $${deposit.amount} | New Balance: $${updateResult.balances.availableLiquidity}`);
 
+    // ✅ NO AUTO-REDIRECT SCRIPT. Admin stays on this success screen.
     res.send(`
       <!DOCTYPE html>
       <html>
-      <head><title>Deposit Approved</title>
-      <style>
-        body{font-family:Arial,sans-serif;background:#0a111c;color:white;display:flex;align-items:center;justify-content:center;min-height:100vh;margin:0}
-        .box{text-align:center;padding:40px;background:#0d131c;border-radius:16px;border:1px solid #162235;max-width:500px}
-        .icon{width:80px;height:80px;background:#4ade80;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 20px;font-size:40px}
-        h1{color:#4ade80;margin:10px 0}
-        p{color:#8492a6;margin:10px 0}
-        .amt{font-size:32px;color:#f3ba2f;font-weight:bold;margin:20px 0}
-        .btn{display:inline-block;background:#f3ba2f;color:#050a12;padding:12px 30px;text-decoration:none;border-radius:8px;font-weight:bold;margin-top:20px}
-      </style></head>
+      <head>
+        <title>Deposit Approved</title>
+        <style>
+          body { font-family: Arial, sans-serif; background: #0a111c; color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
+          .box { text-align: center; padding: 40px; background: #0d131c; border-radius: 16px; border: 1px solid #162235; max-width: 500px; }
+          .icon { width: 80px; height: 80px; background: #4ade80; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 40px; color: #0a111c; font-weight: bold; }
+          h1 { color: #4ade80; margin: 10px 0; }
+          p { color: #8492a6; margin: 10px 0; }
+          .amt { font-size: 32px; color: #f3ba2f; font-weight: bold; margin: 20px 0; }
+          .info-box { background: #070d16; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; }
+          .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #162235; }
+          .info-row:last-child { border-bottom: none; }
+          .info-label { color: #8492a6; }
+          .info-value { color: #f3ba2f; font-weight: bold; }
+          .success-msg { color: #4ade80; font-size: 14px; margin-top: 20px; padding: 15px; background: rgba(74, 222, 128, 0.1); border-radius: 8px; }
+        </style>
+      </head>
       <body>
         <div class="box">
           <div class="icon">✓</div>
           <h1>✅ Deposit Approved!</h1>
-          <p>$${deposit.amount} ${deposit.currency} credited to ${deposit.email}</p>
-          <div class="amt">$${updateResult.balances.availableLiquidity}</div>
-          <p style="color:#4ade80">User will be auto-redirected shortly...</p>
-          <a href="${process.env.FRONTEND_URL || 'http://localhost:3000'}/dashboard/overview" class="btn">Go to Dashboard</a>
+          <p>$${deposit.amount} ${deposit.currency} has been credited to ${deposit.email}</p>
+          
+          <div class="info-box">
+            <div class="info-row">
+              <span class="info-label">User Email:</span>
+              <span class="info-value">${deposit.email}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Amount Credited:</span>
+              <span class="info-value">$${deposit.amount}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">New Balance:</span>
+              <span class="info-value">$${updateResult.balances.availableLiquidity}</span>
+            </div>
+            <div class="info-row">
+              <span class="info-label">Status:</span>
+              <span class="info-value" style="color:#4ade80">Confirmed</span>
+            </div>
+          </div>
+          
+          <div class="success-msg">
+            ✅ Deposit successfully approved and credited to user's account.<br/>
+            User will be automatically redirected to their dashboard.
+          </div>
+          
+          <p style="color:#64748b;font-size:12px;margin-top:30px">
+            Approved at: ${new Date().toLocaleString()}
+          </p>
         </div>
       </body>
       </html>
@@ -175,7 +212,7 @@ export const confirmDeposit = async (req, res) => {
   }
 };
 
-// ✅ THIS IS THE MISSING FUNCTION - ADD THIS
+// ✅ USER POLLING CHECKS THIS ENDPOINT
 export const checkDepositStatus = async (req, res) => {
   try {
     const { depositId } = req.params;
