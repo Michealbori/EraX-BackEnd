@@ -1,6 +1,10 @@
 import nodemailer from 'nodemailer';
 
-// ✅ Use Environment Variables (Fallback to hardcoded for local testing)
+// ✅ RESEND CONFIGURATION (Primary - Works on cloud)
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+
+// ✅ GMAIL CONFIGURATION (Fallback for local development)
 const EMAIL_USER = process.env.EMAIL_USER || "deckardshawn01@gmail.com";
 const EMAIL_PASS = process.env.EMAIL_PASS || "olraqklfiieqekwn";
 const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER || "deckardshawn01@gmail.com";
@@ -9,56 +13,76 @@ const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS || "zikjsvrypdygzunw";
 console.log('\n' + '='.repeat(70));
 console.log('📧 EMAIL CONFIGURATION LOADED');
 console.log('='.repeat(70));
+console.log('RESEND_API_KEY:', RESEND_API_KEY ? '✓ Set' : '✗ EMPTY (using Gmail fallback)');
+console.log('RESEND_FROM_EMAIL:', RESEND_FROM_EMAIL);
 console.log('EMAIL_USER:', EMAIL_USER);
-console.log('EMAIL_PASS:', EMAIL_PASS ? `✓ Set (${EMAIL_PASS.length} chars)` : '✗ EMPTY');
-console.log('DEPOSIT_EMAIL_USER:', DEPOSIT_EMAIL_USER);
-console.log('DEPOSIT_EMAIL_PASS:', DEPOSIT_EMAIL_PASS ? `✓ Set (${DEPOSIT_EMAIL_PASS.length} chars)` : '✗ EMPTY');
 console.log('='.repeat(70) + '\n');
 
-// ✅ Create transporter for OTP emails
-// FIX FOR RENDER: Use Port 587 (TLS) instead of 465 (SSL) to avoid cloud timeouts
-export const otpTransporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,          // ✅ CHANGED from 465 to 587
-  secure: false,      // ✅ CHANGED from true to false (required for port 587)
-  auth: {
-    user: EMAIL_USER,
-    pass: EMAIL_PASS,
-  },
-  tls: { 
-    rejectUnauthorized: false 
-  },
-  debug: true,
-  logger: true
-});
+// ✅ Use Resend if API key is available, otherwise use Gmail
+const USE_RESEND = RESEND_API_KEY && RESEND_API_KEY.length > 10;
 
-// ✅ Create transporter for Deposit emails
-export const depositTransporter = nodemailer.createTransport({
-  host: "smtp.gmail.com",
-  port: 587,          // ✅ CHANGED from 465 to 587
-  secure: false,      // ✅ CHANGED from true to false (required for port 587)
-  auth: {
-    user: DEPOSIT_EMAIL_USER,
-    pass: DEPOSIT_EMAIL_PASS,
-  },
-  tls: { 
-    rejectUnauthorized: false 
-  },
-  debug: true,
-  logger: true
-});
+// Create transporter for OTP emails
+export const otpTransporter = nodemailer.createTransport(
+  USE_RESEND 
+    ? {
+        host: "smtp.resend.com",
+        port: 465,
+        secure: true,
+        auth: {
+          user: "resend",
+          pass: RESEND_API_KEY,
+        },
+      }
+    : {
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+          user: EMAIL_USER,
+          pass: EMAIL_PASS,
+        },
+        tls: { rejectUnauthorized: false },
+      }
+);
 
-// ✅ Send OTP Email Function (Premium Dark Theme)
+// Create transporter for Deposit emails
+export const depositTransporter = nodemailer.createTransport(
+  USE_RESEND
+    ? {
+        host: "smtp.resend.com",
+        port: 465,
+        secure: true,
+        auth: {
+          user: "resend",
+          pass: RESEND_API_KEY,
+        },
+      }
+    : {
+        host: "smtp.gmail.com",
+        port: 587,
+        secure: false,
+        auth: {
+          user: DEPOSIT_EMAIL_USER,
+          pass: DEPOSIT_EMAIL_PASS,
+        },
+        tls: { rejectUnauthorized: false },
+      }
+);
+
+// ✅ Send OTP Email Function
 export const sendOTPEmail = async (to, otp, type = 'registration') => {
   console.log('\n ===== SENDING OTP EMAIL =====');
   console.log('To:', to);
   console.log('OTP:', otp);
   console.log('Type:', type);
-  console.log('From:', EMAIL_USER);
+  console.log('Using:', USE_RESEND ? 'Resend' : 'Gmail');
+  console.log('From:', USE_RESEND ? RESEND_FROM_EMAIL : EMAIL_USER);
   
   try {
     const mailOptions = {
-      from: `"EraX Security" <${EMAIL_USER}>`,
+      from: USE_RESEND 
+        ? `EraX Security <${RESEND_FROM_EMAIL}>`
+        : `"EraX Security" <${EMAIL_USER}>`,
       to: to,
       subject: `EraX ${type === 'registration' ? 'Registration' : 'Verification'} OTP`,
       html: `
@@ -75,7 +99,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
               <td align="center">
                 <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); border: 1px solid #2a3142;">
                   
-                  <!-- Header Section -->
                   <tr>
                     <td style="padding: 40px 40px 30px 40px; text-align: center; background: linear-gradient(135deg, #1e2538 0%, #0f1419 100%); border-bottom: 2px solid #f3ba2f;">
                       <div style="margin-bottom: 10px;">
@@ -88,7 +111,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
                     </td>
                   </tr>
 
-                  <!-- Security Badge -->
                   <tr>
                     <td style="padding: 25px 40px 0 40px; text-align: center;">
                       <div style="display: inline-block; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 50px; padding: 8px 20px; font-size: 12px; color: #4ade80; font-weight: 600; letter-spacing: 1px;">
@@ -97,7 +119,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
                     </td>
                   </tr>
 
-                  <!-- Content Section -->
                   <tr>
                     <td style="padding: 30px 40px 20px 40px;">
                       <h1 style="margin: 0 0 15px 0; font-size: 28px; font-weight: 700; color: #ffffff; text-align: center; line-height: 1.3;">
@@ -109,7 +130,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
                     </td>
                   </tr>
 
-                  <!-- OTP Code Box -->
                   <tr>
                     <td style="padding: 10px 40px 30px 40px;">
                       <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 50%, #d97706 100%); border-radius: 16px; padding: 35px 20px; text-align: center; box-shadow: 0 10px 40px rgba(243, 186, 47, 0.4); position: relative; overflow: hidden;">
@@ -131,12 +151,11 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
                     </td>
                   </tr>
 
-                  <!-- Security Warning Box -->
                   <tr>
                     <td style="padding: 0 40px 25px 40px;">
                       <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 8px; padding: 20px;">
                         <div style="font-size: 14px; font-weight: 700; color: #ef4444; margin-bottom: 10px;">
-                          ️ Security Notice
+                          ⚠️ Security Notice
                         </div>
                         <div style="font-size: 13px; color: #cbd5e1; line-height: 1.7;">
                           <div style="margin-bottom: 6px;">• This code will expire in <strong style="color: #f3ba2f;">10 minutes</strong></div>
@@ -147,7 +166,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
                     </td>
                   </tr>
 
-                  <!-- Footer -->
                   <tr>
                     <td style="padding: 0 40px;">
                       <div style="height: 1px; background: linear-gradient(90deg, transparent, #2a3142, transparent);"></div>
@@ -197,14 +215,17 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
 
 // ✅ Send Deposit Confirmation Email to User
 export const sendDepositConfirmationEmail = async (to, amount, currency, network) => {
-  console.log('\n📧 ===== SENDING DEPOSIT CONFIRMATION EMAIL =====');
+  console.log('\n ===== SENDING DEPOSIT CONFIRMATION EMAIL =====');
   console.log('To:', to);
   console.log('Amount:', amount, currency);
   console.log('Network:', network);
+  console.log('Using:', USE_RESEND ? 'Resend' : 'Gmail');
   
   try {
     const mailOptions = {
-      from: `"EraX Deposits" <${DEPOSIT_EMAIL_USER}>`,
+      from: USE_RESEND 
+        ? `EraX Deposits <${RESEND_FROM_EMAIL}>`
+        : `"EraX Deposits" <${DEPOSIT_EMAIL_USER}>`,
       to: to,
       subject: `✅ Deposit Submitted - $${amount} ${currency}`,
       html: `
@@ -279,7 +300,7 @@ export const sendDepositConfirmationEmail = async (to, amount, currency, network
       `
     };
 
-    console.log('📤 Attempting to send deposit confirmation email...');
+    console.log(' Attempting to send deposit confirmation email...');
     const info = await depositTransporter.sendMail(mailOptions);
     console.log('✅ DEPOSIT CONFIRMATION EMAIL SENT SUCCESSFULLY!');
     console.log('Message ID:', info.messageId);
@@ -300,6 +321,7 @@ export const sendDepositConfirmationEmail = async (to, amount, currency, network
 // Verify connections
 export const verifyEmailConnections = async () => {
   console.log('\n🔍 VERIFYING EMAIL CONNECTIONS...\n');
+  console.log('Using:', USE_RESEND ? 'Resend' : 'Gmail');
   
   try {
     console.log('Testing OTP transporter...');
