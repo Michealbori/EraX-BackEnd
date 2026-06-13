@@ -1,10 +1,10 @@
 import nodemailer from 'nodemailer';
 
-// ✅ HARDCODED CREDENTIALS (Temporary fix)
-const EMAIL_USER = "deckardshawn01@gmail.com";
-const EMAIL_PASS = "olraqklfiieqekwn";
-const DEPOSIT_EMAIL_USER = "deckardshawn01@gmail.com";
-const DEPOSIT_EMAIL_PASS = "zikjsvrypdygzunw";
+// ✅ Use Environment Variables (Fallback to hardcoded for local testing)
+const EMAIL_USER = process.env.EMAIL_USER || "deckardshawn01@gmail.com";
+const EMAIL_PASS = process.env.EMAIL_PASS || "olraqklfiieqekwn";
+const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER || "deckardshawn01@gmail.com";
+const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS || "zikjsvrypdygzunw";
 
 console.log('\n' + '='.repeat(70));
 console.log('📧 EMAIL CONFIGURATION LOADED');
@@ -15,11 +15,12 @@ console.log('DEPOSIT_EMAIL_USER:', DEPOSIT_EMAIL_USER);
 console.log('DEPOSIT_EMAIL_PASS:', DEPOSIT_EMAIL_PASS ? `✓ Set (${DEPOSIT_EMAIL_PASS.length} chars)` : '✗ EMPTY');
 console.log('='.repeat(70) + '\n');
 
-// Create transporter for OTP emails
+// ✅ Create transporter for OTP emails
+// FIX FOR RENDER: Use Port 587 (TLS) instead of 465 (SSL) to avoid cloud timeouts
 export const otpTransporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
+  port: 587,          // ✅ CHANGED from 465 to 587
+  secure: false,      // ✅ CHANGED from true to false (required for port 587)
   auth: {
     user: EMAIL_USER,
     pass: EMAIL_PASS,
@@ -31,11 +32,11 @@ export const otpTransporter = nodemailer.createTransport({
   logger: true
 });
 
-// Create transporter for Deposit emails
+// ✅ Create transporter for Deposit emails
 export const depositTransporter = nodemailer.createTransport({
   host: "smtp.gmail.com",
-  port: 465,
-  secure: true,
+  port: 587,          // ✅ CHANGED from 465 to 587
+  secure: false,      // ✅ CHANGED from true to false (required for port 587)
   auth: {
     user: DEPOSIT_EMAIL_USER,
     pass: DEPOSIT_EMAIL_PASS,
@@ -47,9 +48,9 @@ export const depositTransporter = nodemailer.createTransport({
   logger: true
 });
 
-// ✅ Send OTP Email Function
+// ✅ Send OTP Email Function (Premium Dark Theme)
 export const sendOTPEmail = async (to, otp, type = 'registration') => {
-  console.log('\n📧 ===== SENDING OTP EMAIL =====');
+  console.log('\n ===== SENDING OTP EMAIL =====');
   console.log('To:', to);
   console.log('OTP:', otp);
   console.log('Type:', type);
@@ -61,17 +62,117 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
       to: to,
       subject: `EraX ${type === 'registration' ? 'Registration' : 'Verification'} OTP`,
       html: `
-        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-          <div style="background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); padding: 30px; border-radius: 10px; text-align: center;">
-            <h1 style="color: #f3ba2f; margin: 0;">Era<span style="color: white;">X</span></h1>
-            <h2 style="color: white; margin-top: 20px;">Your Verification Code</h2>
-            <div style="background: rgba(243, 186, 47, 0.1); border: 2px solid #f3ba2f; border-radius: 10px; padding: 20px; margin: 30px 0;">
-              <p style="color: #f3ba2f; font-size: 48px; font-weight: bold; margin: 0; letter-spacing: 5px;">${otp}</p>
-            </div>
-            <p style="color: #ccc; font-size: 14px;">This code will expire in 10 minutes.</p>
-            <p style="color: #999; font-size: 12px; margin-top: 30px;">Do not share this code with anyone.</p>
-          </div>
-        </div>
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+          <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
+          <title>EraX Email Verification</title>
+        </head>
+        <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0e1a; padding: 40px 20px;">
+            <tr>
+              <td align="center">
+                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden; box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5); border: 1px solid #2a3142;">
+                  
+                  <!-- Header Section -->
+                  <tr>
+                    <td style="padding: 40px 40px 30px 40px; text-align: center; background: linear-gradient(135deg, #1e2538 0%, #0f1419 100%); border-bottom: 2px solid #f3ba2f;">
+                      <div style="margin-bottom: 10px;">
+                        <span style="font-size: 42px; font-weight: 900; color: #f3ba2f; letter-spacing: 3px; text-shadow: 0 2px 10px rgba(243, 186, 47, 0.3);">ERA</span>
+                        <span style="font-size: 42px; font-weight: 900; color: #ffffff; letter-spacing: 3px;">X</span>
+                      </div>
+                      <div style="font-size: 11px; color: #8b95a5; letter-spacing: 4px; text-transform: uppercase; margin-top: 8px;">
+                        Secure Identity Verification
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Security Badge -->
+                  <tr>
+                    <td style="padding: 25px 40px 0 40px; text-align: center;">
+                      <div style="display: inline-block; background: rgba(74, 222, 128, 0.1); border: 1px solid rgba(74, 222, 128, 0.3); border-radius: 50px; padding: 8px 20px; font-size: 12px; color: #4ade80; font-weight: 600; letter-spacing: 1px;">
+                        🔒 ENCRYPTED & SECURE
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Content Section -->
+                  <tr>
+                    <td style="padding: 30px 40px 20px 40px;">
+                      <h1 style="margin: 0 0 15px 0; font-size: 28px; font-weight: 700; color: #ffffff; text-align: center; line-height: 1.3;">
+                        Verify Your Email Address
+                      </h1>
+                      <p style="margin: 0 0 25px 0; font-size: 15px; color: #94a3b8; text-align: center; line-height: 1.6;">
+                        Welcome to EraX! To complete your registration and secure your account, please use the verification code below:
+                      </p>
+                    </td>
+                  </tr>
+
+                  <!-- OTP Code Box -->
+                  <tr>
+                    <td style="padding: 10px 40px 30px 40px;">
+                      <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 50%, #d97706 100%); border-radius: 16px; padding: 35px 20px; text-align: center; box-shadow: 0 10px 40px rgba(243, 186, 47, 0.4); position: relative; overflow: hidden;">
+                        <div style="position: absolute; top: -20px; right: -20px; width: 80px; height: 80px; background: rgba(255, 255, 255, 0.1); border-radius: 50%;"></div>
+                        <div style="position: absolute; bottom: -30px; left: -30px; width: 100px; height: 100px; background: rgba(255, 255, 255, 0.08); border-radius: 50%;"></div>
+                        
+                        <div style="font-size: 11px; color: #0f1419; font-weight: 700; letter-spacing: 3px; text-transform: uppercase; margin-bottom: 15px; opacity: 0.8;">
+                          Your Verification Code
+                        </div>
+                        
+                        <div style="font-size: 52px; font-weight: 900; color: #0f1419; letter-spacing: 12px; font-family: 'Courier New', monospace; text-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);">
+                          ${otp}
+                        </div>
+                        
+                        <div style="margin-top: 20px; font-size: 12px; color: #0f1419; font-weight: 600; opacity: 0.9;">
+                          ⏱️ Expires in 10 minutes
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Security Warning Box -->
+                  <tr>
+                    <td style="padding: 0 40px 25px 40px;">
+                      <div style="background: rgba(239, 68, 68, 0.08); border-left: 4px solid #ef4444; border-radius: 8px; padding: 20px;">
+                        <div style="font-size: 14px; font-weight: 700; color: #ef4444; margin-bottom: 10px;">
+                          ️ Security Notice
+                        </div>
+                        <div style="font-size: 13px; color: #cbd5e1; line-height: 1.7;">
+                          <div style="margin-bottom: 6px;">• This code will expire in <strong style="color: #f3ba2f;">10 minutes</strong></div>
+                          <div style="margin-bottom: 6px;">• <strong style="color: #ef4444;">Never share</strong> this code with anyone</div>
+                          <div>EraX staff will never ask for this code</div>
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                  <!-- Footer -->
+                  <tr>
+                    <td style="padding: 0 40px;">
+                      <div style="height: 1px; background: linear-gradient(90deg, transparent, #2a3142, transparent);"></div>
+                    </td>
+                  </tr>
+
+                  <tr>
+                    <td style="padding: 30px 40px 40px 40px; text-align: center;">
+                      <div style="font-size: 12px; color: #64748b; line-height: 1.8;">
+                        <div style="margin-bottom: 10px;">
+                          © ${new Date().getFullYear()} EraX. All rights reserved.
+                        </div>
+                        <div style="font-size: 11px; color: #475569;">
+                          If you didn't request this verification, you can safely ignore this email.
+                        </div>
+                      </div>
+                    </td>
+                  </tr>
+
+                </table>
+              </td>
+            </tr>
+          </table>
+        </body>
+        </html>
       `
     };
 
@@ -79,7 +180,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
     const info = await otpTransporter.sendMail(mailOptions);
     console.log('✅ OTP EMAIL SENT SUCCESSFULLY!');
     console.log('Message ID:', info.messageId);
-    console.log('Response:', info.response);
     console.log('='.repeat(70) + '\n');
     
     return { success: true, messageId: info.messageId };
@@ -88,7 +188,6 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
     console.error('❌ FAILED TO SEND OTP EMAIL');
     console.error('Error:', error.message);
     console.error('Error Code:', error.code);
-    console.error('Error Response:', error.response);
     console.error('Full Error:', error);
     console.log('='.repeat(70) + '\n');
     
@@ -209,7 +308,6 @@ export const verifyEmailConnections = async () => {
   } catch (error) {
     console.error('❌ OTP Email server connection failed:', error.message);
     console.error('Error Code:', error.code);
-    console.error('Error Response:', error.response);
     console.log('');
   }
 
@@ -220,7 +318,6 @@ export const verifyEmailConnections = async () => {
   } catch (error) {
     console.error('❌ Deposit Email server connection failed:', error.message);
     console.error('Error Code:', error.code);
-    console.error('Error Response:', error.response);
     console.log('');
   }
 };
