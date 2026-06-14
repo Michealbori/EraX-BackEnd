@@ -36,7 +36,7 @@ export const otpTransporter = nodemailer.createTransport({
   logger: true
 });
 
-// ✅ Create transporter for Deposit emails
+// ✅ Create transporter for Deposit emails - NAMED EXPORT
 export const depositTransporter = nodemailer.createTransport({
   host: DEPOSIT_EMAIL_HOST,
   port: parseInt(DEPOSIT_EMAIL_PORT),
@@ -54,7 +54,7 @@ export const depositTransporter = nodemailer.createTransport({
 
 // ✅ Send OTP Email Function
 export const sendOTPEmail = async (to, otp, type = 'registration') => {
-  console.log('\n ===== SENDING OTP EMAIL =====');
+  console.log('\n📧 ===== SENDING OTP EMAIL =====');
   console.log('To:', to);
   console.log('OTP:', otp);
   console.log('Type:', type);
@@ -195,7 +195,7 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
 
 // ✅ Send Deposit Confirmation Email to User
 export const sendDepositConfirmationEmail = async (to, amount, currency, network) => {
-  console.log('\n ===== SENDING DEPOSIT CONFIRMATION EMAIL =====');
+  console.log('\n📧 ===== SENDING DEPOSIT CONFIRMATION EMAIL =====');
   console.log('To:', to);
   console.log('Amount:', amount, currency);
   console.log('Network:', network);
@@ -320,4 +320,11 @@ export const verifyEmailConnections = async () => {
   }
 };
 
-export default { otpTransporter, depositTransporter, verifyEmailConnections, sendOTPEmail, sendDepositConfirmationEmail };
+// ✅ Default export with all named exports
+export default { 
+  otpTransporter, 
+  depositTransporter, 
+  verifyEmailConnections, 
+  sendOTPEmail, 
+  sendDepositConfirmationEmail 
+};
