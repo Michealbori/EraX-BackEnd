@@ -64,9 +64,11 @@ export const notifyAdminOfDeposit = async (req, res) => {
     await depositReq.save();
     console.log("✅ Deposit saved:", depositReq._id);
 
-    // Backend URL for the approval link
-    const backendUrl = process.env.BACKEND_URL || req.protocol + "://" + req.get("host");
+    // ✅ FIXED: Use production backend URL
+    const backendUrl = process.env.BACKEND_URL || "https://erax-backend-o3hb.onrender.com";
     const approvalUrl = `${backendUrl}/api/deposit/approve/${depositReq._id}`;
+
+    console.log("🔗 Approval URL:", approvalUrl);
 
     // ✅ Send email to ADMIN
     try {
@@ -81,10 +83,14 @@ export const notifyAdminOfDeposit = async (req, res) => {
               <p><strong>User:</strong> ${email}</p>
               <p><strong>Amount:</strong> $${amount} ${currency}</p>
               <p><strong>Network:</strong> ${network}</p>
+              <p><strong>Deposit ID:</strong> ${depositReq._id}</p>
             </div>
             <div style="text-align: center; margin: 30px 0;">
               <a href="${approvalUrl}" style="display: inline-block; background: #f3ba2f; color: #050a12; padding: 15px 40px; text-decoration: none; border-radius: 8px; font-weight: bold; font-size: 16px;">✅ Approve Deposit</a>
             </div>
+            <p style="color: #8492a6; font-size: 12px; text-align: center;">
+              This link will approve the deposit and credit the user's account.
+            </p>
           </div>
         `
       });
