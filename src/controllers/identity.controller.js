@@ -73,12 +73,14 @@ export const registerUserNode = async (req, res) => {
       });
     }
 
+    // ✅ Check if user already exists in database
     const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       console.log("⚠️ User already exists:", email);
       return res.status(400).json({
         success: false,
-        message: "User already exists with this email"
+        message: "User already exists with this email. Please login instead.",
+        code: "EMAIL_EXISTS"
       });
     }
 
@@ -105,6 +107,7 @@ export const registerUserNode = async (req, res) => {
       }
     }
 
+    // ✅ CREATE USER WITH OTP
     const user = await User.create({
       email: email.toLowerCase().trim(),
       password: hashedPassword,
@@ -131,6 +134,7 @@ export const registerUserNode = async (req, res) => {
     console.log("✅ OTP saved to database:", user.otp);
     console.log("✅ Referred by:", referredBy || "None");
 
+    // ✅ SEND OTP EMAIL
     console.log("\n📤 Attempting to send OTP email...");
     console.log("To:", email);
     console.log("OTP:", otp);
@@ -167,6 +171,16 @@ export const registerUserNode = async (req, res) => {
     console.error("\n❌ REGISTER ERROR:", error);
     console.error("Error stack:", error.stack);
     console.log("=".repeat(60) + "\n");
+    
+    // ✅ Handle specific MongoDB errors
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: "Email already registered. Please login instead.",
+        code: "EMAIL_EXISTS"
+      });
+    }
+    
     res.status(500).json({
       success: false,
       message: "Failed to register user",
