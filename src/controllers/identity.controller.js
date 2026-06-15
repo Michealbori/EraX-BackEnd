@@ -189,6 +189,49 @@ export const registerUserNode = async (req, res) => {
   }
 };
 
+// ✅ NEW: Check if email is available for registration
+export const checkEmailAvailability = async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email is required"
+      });
+    }
+
+    const cleanEmail = email.toLowerCase().trim();
+    
+    // Check if user exists in MongoDB
+    const existingUser = await User.findOne({ email: cleanEmail });
+    
+    if (existingUser) {
+      console.log("⚠️ Email already registered:", cleanEmail);
+      return res.status(200).json({
+        success: true,
+        available: false,
+        message: "This email is already registered. Please login instead."
+      });
+    }
+
+    console.log("✅ Email available:", cleanEmail);
+    return res.status(200).json({
+      success: true,
+      available: true,
+      message: "Email is available for registration"
+    });
+
+  } catch (error) {
+    console.error("❌ CHECK EMAIL ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to check email availability",
+      error: error.message
+    });
+  }
+};
+
 export const loginUserNode = async (req, res) => {
   try {
     const { email, password } = req.body;

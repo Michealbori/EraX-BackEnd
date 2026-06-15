@@ -8,7 +8,7 @@ import {
   updateProfileNode,
   updateEmailNode,
   updatePasswordNode,
-  setPasswordNode,  // ✅ NEW: Added import
+  setPasswordNode,
   deleteAccountNode,
   requestEmailChangeNode,
   verifyEmailChangeNode,
@@ -18,7 +18,8 @@ import {
   validateReferralCodeEndpoint,
   getMyReferralCode,
   getReferralStats,
-  handleGoogleSignIn
+  handleGoogleSignIn,
+  checkEmailAvailability,  // ✅ ADD THIS IMPORT
 } from "../controllers/identity.controller.js";
 import { upload } from "../middlewares/upload.js";
 
@@ -37,6 +38,9 @@ router.post("/google-signin", handleGoogleSignIn);
 
 // ✅ NEW: Set Password Route (for Google users to set password)
 router.post("/set-password", setPasswordNode);
+
+// ✅ NEW: Check Email Availability (MUST be before other routes)
+router.get("/check-email", checkEmailAvailability);
 
 // =====================================================
 // PROFILE ROUTES
