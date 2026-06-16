@@ -37,8 +37,8 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
-  // ✅ OTP FIELDS - CRITICAL FOR VERIFICATION
-  otp: {
+  // ✅ OTP FIELDS - FIXED: Changed from otpCode to otp
+  otp: {  // ✅ CHANGED FROM otpCode
     type: String,
     default: null
   },
@@ -79,7 +79,9 @@ const userSchema = new mongoose.Schema({
   },
   referralCode: {
     type: String,
-    default: null
+    default: null,
+    unique: true,  // ✅ Added unique constraint
+    sparse: true   // ✅ Allows null values
   },
   referredBy: {
     type: mongoose.Schema.Types.ObjectId,
@@ -119,6 +121,8 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-const User = mongoose.model('User', userSchema);
+const User =
+  mongoose.models.User ||
+  mongoose.model("User", userSchema);
 
 export default User;

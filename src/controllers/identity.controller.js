@@ -107,6 +107,18 @@ export const registerUserNode = async (req, res) => {
       }
     }
 
+    // ✅ Generate unique referral code
+    let userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    
+    // ✅ Ensure referral code is unique
+    let referralCodeExists = await User.findOne({ referralCode: userReferralCode });
+    while (referralCodeExists) {
+      userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+      referralCodeExists = await User.findOne({ referralCode: userReferralCode });
+    }
+
+    console.log("🏷️ Generated referral code:", userReferralCode);
+
     // ✅ CREATE USER WITH OTP
     const user = await User.create({
       email: email.toLowerCase().trim(),
@@ -120,6 +132,7 @@ export const registerUserNode = async (req, res) => {
       otpExpires: otpExpires,
       authProvider: 'email',
       referredBy: referredBy,
+      referralCode: userReferralCode,  // ✅ Add unique referral code
       balances: {
         availableLiquidity: 0,
         totalDeposited: 0,
@@ -132,6 +145,7 @@ export const registerUserNode = async (req, res) => {
 
     console.log("✅ User created in database");
     console.log("✅ OTP saved to database:", user.otp);
+    console.log("✅ Referral code:", user.referralCode);
     console.log("✅ Referred by:", referredBy || "None");
 
     // ✅ SEND OTP EMAIL
@@ -162,7 +176,8 @@ export const registerUserNode = async (req, res) => {
         id: user._id,
         email: user.email,
         fullName: user.fullName,
-        isVerified: user.isVerified
+        isVerified: user.isVerified,
+        referralCode: user.referralCode  // ✅ Return referral code
       },
       token: generateToken(user._id)
     });
@@ -170,21 +185,47 @@ export const registerUserNode = async (req, res) => {
   } catch (error) {
     console.error("\n❌ REGISTER ERROR:", error);
     console.error("Error stack:", error.stack);
+    console.error("Error code:", error.code);
+    console.error("Error keyPattern:", error.keyPattern);
+    console.error("Error keyValue:", error.keyValue);
     console.log("=".repeat(60) + "\n");
     
-    // ✅ Handle specific MongoDB errors
+    // ✅ Handle specific MongoDB duplicate key errors
     if (error.code === 11000) {
+      console.log("🔍 Duplicate key error detected");
+      console.log("🔍 Duplicate key pattern:", error.keyPattern);
+      console.log("🔍 Duplicate key value:", error.keyValue);
+
+      // Check which field caused the duplicate
+      if (error.keyPattern?.email) {
+        return res.status(400).json({
+          success: false,
+          message: "Email already registered. Please login instead.",
+          code: "EMAIL_EXISTS"
+        });
+      }
+      
+      if (error.keyPattern?.referralCode) {
+        return res.status(400).json({
+          success: false,
+          message: "Referral code already exists. Please try again.",
+          code: "REFERRAL_CODE_EXISTS"
+        });
+      }
+
+      // Generic duplicate key error
       return res.status(400).json({
         success: false,
-        message: "Email already registered. Please login instead.",
-        code: "EMAIL_EXISTS"
+        message: "Duplicate field detected. Please use different values.",
+        code: "DUPLICATE_KEY",
+        field: Object.keys(error.keyPattern || {})[0]
       });
     }
     
     res.status(500).json({
       success: false,
       message: "Failed to register user",
-      error: error.message
+      error: error.message || error.toString()
     });
   }
 };
@@ -942,7 +983,7 @@ export const getDashboardMetrics = async (req, res) => {
 };
 
 // =====================================================
-// REFERRAL FUNCTIONS - ✅ UPDATED
+// REFERRAL FUNCTIONS
 // =====================================================
 
 export const validateReferralCodeEndpoint = async (req, res) => {
