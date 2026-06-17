@@ -1,20 +1,26 @@
+// ✅ CRITICAL: Load .env FIRST - before ANY other imports
+import 'dotenv/config';
+
 import express from 'express';
 import mongoose from 'mongoose';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 
 // =====================================================
-// ✅ CORRECT IMPORT PATHS (routes are in src/routes/)
+// ✅ NOW IMPORT ALL ROUTES (after .env is loaded)
 // =====================================================
 import identityRoutes from './src/routes/identity.routes.js';
 import depositRoutes from './src/routes/deposit.routes.js';
 import investmentRoutes from './src/routes/investment.routes.js';
 import withdrawalRoutes from './src/routes/withdrawal.routes.js';
+import adminRoutes from './src/routes/admin.routes.js';
 
-// Load environment variables
-dotenv.config();
+// 🔍 DEBUG: Verify .env is loaded
+console.log('\n🔍 ===== SERVER STARTUP DEBUG =====');
+console.log('RESEND_API_KEY loaded:', process.env.RESEND_API_KEY ? '✅ YES' : '❌ NO');
+console.log('NODE_ENV:', process.env.NODE_ENV);
+console.log('===================================\n');
 
 const app = express();
 
@@ -22,7 +28,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 // =====================================================
-// ✅ UPDATED CORS CONFIGURATION
+// ✅ CORS CONFIGURATION
 // =====================================================
 app.use(cors({
   origin: '*',
@@ -42,7 +48,6 @@ app.use(cors({
 // =====================================================
 // MIDDLEWARE
 // =====================================================
-
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
@@ -56,13 +61,23 @@ app.use((req, res, next) => {
 });
 
 // =====================================================
-// API ROUTES
+// ✅ API ROUTES - ALL REGISTERED
 // =====================================================
 
+// User routes
 app.use('/api/identity', identityRoutes);
+
+// Deposit routes
 app.use('/api/deposit', depositRoutes);
+
+// Investment routes
 app.use('/api/investment', investmentRoutes);
+
+// Withdrawal routes
 app.use('/api/withdrawal', withdrawalRoutes);
+
+// ✅ ADMIN ROUTES
+app.use('/api/admin/auth', adminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -78,7 +93,14 @@ app.get('/', (req, res) => {
   res.status(200).json({
     success: true,
     message: 'Welcome to EraX API',
-    version: '1.0.0'
+    version: '1.0.0',
+    endpoints: {
+      identity: '/api/identity',
+      deposit: '/api/deposit',
+      investment: '/api/investment',
+      withdrawal: '/api/withdrawal',
+      admin: '/api/admin/auth'
+    }
   });
 });
 
@@ -86,6 +108,7 @@ app.get('/', (req, res) => {
 // ERROR HANDLING
 // =====================================================
 
+// 404 handler
 app.use((req, res) => {
   res.status(404).json({
     success: false,
@@ -93,6 +116,7 @@ app.use((req, res) => {
   });
 });
 
+// Global error handler
 app.use((err, req, res, next) => {
   console.error('❌ SERVER ERROR:', err);
   res.status(err.status || 500).json({
@@ -118,6 +142,7 @@ mongoose.connect(MONGODB_URI, {
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+    console.log(`📍 Admin Routes: /api/admin/auth`);
   });
 })
 .catch((error) => {

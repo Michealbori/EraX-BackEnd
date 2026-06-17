@@ -1,37 +1,54 @@
 import nodemailer from 'nodemailer';
 
-// ✅ Check if using Resend or Gmail
-const USE_RESEND = process.env.RESEND_API_KEY && process.env.RESEND_API_KEY.length > 10;
+// 🔍 DEBUG: Check if .env is loaded
+console.log('\n🔍 ===== DEBUGGING .env LOADING =====');
+console.log('process.env.RESEND_API_KEY:', process.env.RESEND_API_KEY ? '✅ EXISTS' : '❌ MISSING');
+console.log('process.env.RESEND_API_KEY value:', process.env.RESEND_API_KEY);
+console.log('process.env.NODE_ENV:', process.env.NODE_ENV);
+console.log('=====================================\n');
+
+// ✅ Determine environment
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+
+// ✅ Check if using Resend (recommended) or Gmail
+const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const USE_RESEND = RESEND_API_KEY && RESEND_API_KEY.startsWith('re_');
 
 // Gmail config (fallback)
 const EMAIL_HOST = process.env.EMAIL_HOST || "smtp.gmail.com";
-const EMAIL_PORT = process.env.EMAIL_PORT || "465";
-const EMAIL_USER = process.env.EMAIL_USER || "deckardshawn01@gmail.com";
-const EMAIL_PASS = process.env.EMAIL_PASS || "olraqklfiieqekwn";
+const EMAIL_PORT = process.env.EMAIL_PORT || "587";
+const EMAIL_USER = process.env.EMAIL_USER;
+const EMAIL_PASS = process.env.EMAIL_PASS;
 
 const DEPOSIT_EMAIL_HOST = process.env.DEPOSIT_EMAIL_HOST || "smtp.gmail.com";
-const DEPOSIT_EMAIL_PORT = process.env.DEPOSIT_EMAIL_PORT || "465";
-const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER || "deckardshawn01@gmail.com";
-const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS || "zikjsvrypdygzunw";
+const DEPOSIT_EMAIL_PORT = process.env.DEPOSIT_EMAIL_PORT || "587";
+const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER;
+const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS;
 
 // Resend config
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
 
 console.log('\n' + '='.repeat(70));
 console.log('📧 EMAIL CONFIGURATION LOADED');
 console.log('='.repeat(70));
-console.log('Email Service:', USE_RESEND ? '✅ Resend' : '⚠️ Gmail (Fallback)');
+console.log('Environment:', IS_PRODUCTION ? '🌍 PRODUCTION' : '💻 DEVELOPMENT');
+console.log('Email Service:', USE_RESEND ? '✅ RESEND (Recommended)' : '⚠️ Gmail (Fallback)');
+console.log('USE_RESEND value:', USE_RESEND);
+
 if (USE_RESEND) {
   console.log('From Email:', RESEND_FROM_EMAIL);
+  console.log('API Key:', RESEND_API_KEY.substring(0, 15) + '...');
 } else {
+  console.log('⚠️  WARNING: Using Gmail SMTP (less reliable)');
   console.log('EMAIL_HOST:', EMAIL_HOST);
   console.log('EMAIL_PORT:', EMAIL_PORT);
   console.log('EMAIL_USER:', EMAIL_USER);
+  console.log('EMAIL_PASS:', EMAIL_PASS ? `✓ Set (${EMAIL_PASS.length} chars)` : '✗ EMPTY - WILL FAIL!');
+  console.log('\n💡 FIX: Make sure dotenv.config() is called BEFORE importing email.js');
 }
 console.log('='.repeat(70) + '\n');
 
-// ✅ Create transporter
+// ✅ Create transporter with optimized settings
 export const otpTransporter = nodemailer.createTransport(
   USE_RESEND 
     ? {
@@ -51,7 +68,15 @@ export const otpTransporter = nodemailer.createTransport(
           user: EMAIL_USER,
           pass: EMAIL_PASS,
         },
-        tls: { rejectUnauthorized: false },
+        tls: { 
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        },
+        connectionTimeout: 30000,
+        greetingTimeout: 30000,
+        socketTimeout: 60000,
+        debug: !IS_PRODUCTION,
+        logger: true
       }
 );
 
@@ -74,16 +99,39 @@ export const depositTransporter = nodemailer.createTransport(
           user: DEPOSIT_EMAIL_USER,
           pass: DEPOSIT_EMAIL_PASS,
         },
-        tls: { rejectUnauthorized: false },
+        tls: { 
+          rejectUnauthorized: false,
+          minVersion: 'TLSv1.2'
+        },
+        connectionTimeout: 30000,
+        greetingTimeout: 30000,
+        socketTimeout: 60000,
+        debug: !IS_PRODUCTION,
+        logger: true
       }
 );
+
+// ✅ Verify transporter connection
+export const verifyTransporter = async (transporter, name = 'Email') => {
+  try {
+    await transporter.verify();
+    console.log(`✅ ${name} transporter is ready to send emails`);
+    return true;
+  } catch (error) {
+    console.error(`❌ ${name} transporter verification failed:`, error.message);
+    return false;
+  }
+};
 
 // ✅ Send OTP Email
 export const sendOTPEmail = async (to, otp, type = 'registration') => {
   console.log('\n📧 ===== SENDING OTP EMAIL =====');
   console.log('To:', to);
   console.log('OTP:', otp);
+  console.log('Type:', type);
   console.log('Service:', USE_RESEND ? 'Resend' : 'Gmail');
+  console.log('From:', USE_RESEND ? RESEND_FROM_EMAIL : EMAIL_USER);
+  console.log('Using Resend?', USE_RESEND);
   
   try {
     const mailOptions = {
@@ -97,6 +145,7 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
         <html>
         <head>
           <meta charset="UTF-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1.0">
           <title>EraX Email Verification</title>
         </head>
         <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: Arial, sans-serif;">
@@ -141,6 +190,7 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
     const info = await otpTransporter.sendMail(mailOptions);
     console.log('✅ OTP EMAIL SENT SUCCESSFULLY!');
     console.log('Message ID:', info.messageId);
+    console.log('='.repeat(70) + '\n');
     
     return { success: true, messageId: info.messageId };
     
@@ -148,6 +198,8 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
     console.error('❌ FAILED TO SEND OTP EMAIL');
     console.error('Error:', error.message);
     console.error('Code:', error.code);
+    console.error('Full Error:', error);
+    console.log('='.repeat(70) + '\n');
     
     throw new Error(`Email sending failed: ${error.message}`);
   }
@@ -157,6 +209,8 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
 export const sendDepositConfirmationEmail = async (to, amount, currency, network) => {
   console.log('\n📧 ===== SENDING DEPOSIT EMAIL =====');
   console.log('To:', to);
+  console.log('Amount:', amount, currency);
+  console.log('Network:', network);
   console.log('Service:', USE_RESEND ? 'Resend' : 'Gmail');
   
   try {
@@ -194,12 +248,17 @@ export const sendDepositConfirmationEmail = async (to, amount, currency, network
     console.log('📤 Sending deposit email...');
     const info = await depositTransporter.sendMail(mailOptions);
     console.log('✅ DEPOSIT EMAIL SENT SUCCESSFULLY!');
+    console.log('Message ID:', info.messageId);
+    console.log('='.repeat(70) + '\n');
     
     return { success: true, messageId: info.messageId };
     
   } catch (error) {
     console.error('❌ FAILED TO SEND DEPOSIT EMAIL');
     console.error('Error:', error.message);
+    console.error('Code:', error.code);
+    console.error('Full Error:', error);
+    console.log('='.repeat(70) + '\n');
     
     throw new Error(`Email sending failed: ${error.message}`);
   }
@@ -209,5 +268,6 @@ export default {
   otpTransporter, 
   depositTransporter, 
   sendOTPEmail, 
-  sendDepositConfirmationEmail 
+  sendDepositConfirmationEmail,
+  verifyTransporter
 };

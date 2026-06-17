@@ -1,15 +1,163 @@
-import User from "../../models/User.js";
-import Deposit from "../../models/Deposit.js";
-import Withdrawal from "../../models/Withdrawal.js";
-import Investment from "../../models/Investment.js";
-import AdminLog from "../../models/AdminLog.js";
+import User from "../models/User.js";
+import DepositRequest from "../models/DepositRequest.js";
+import Withdrawal from "../models/Withdrawal.js";
+import Investment from "../models/Investment.js";
+import bcrypt from 'bcryptjs';
+import jwt from 'jsonwebtoken';
 
+// =====================================================
+// ADMIN AUTHENTICATION FUNCTIONS
+// =====================================================
+
+// POST /api/admin/auth/register
+export const registerAdmin = async (req, res) => {
+  try {
+    const { adminName, email, password } = req.body;
+
+    console.log('📝 [ADMIN REGISTER] Attempting registration');
+    console.log('Email:', email);
+    console.log('Admin Name:', adminName);
+
+    // Check if admin already exists
+    const existingAdmin = await User.findOne({ 
+      email: email.toLowerCase().trim(),
+      isAdmin: true 
+    });
+    
+    if (existingAdmin) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Admin already exists with this email' 
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 12) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 12 characters'
+      });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Create admin user
+    const admin = await User.create({
+      fullName: adminName,
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      isAdmin: true,
+      isVerified: true,
+      verifiedAt: new Date()
+    });
+
+    console.log('✅ Admin created:', admin.email);
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: admin._id, isAdmin: true, email: admin.email },
+      process.env.JWT_SECRET || 'eraX_secret_key_2024',
+      { expiresIn: '30d' }
+    );
+
+    res.status(201).json({
+      success: true,
+      message: 'Admin registered successfully',
+      admin: {
+        id: admin._id,
+        fullName: admin.fullName,
+        email: admin.email,
+        isAdmin: admin.isAdmin
+      },
+      token
+    });
+
+  } catch (error) {
+    console.error('❌ ADMIN REGISTER ERROR:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to register admin',
+      error: error.message
+    });
+  }
+};
+
+// POST /api/admin/auth/login
+export const loginAdmin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+
+    console.log('🔑 [ADMIN LOGIN] Email:', email);
+
+    // Find admin user
+    const admin = await User.findOne({ 
+      email: email.toLowerCase().trim(),
+      isAdmin: true 
+    });
+
+    if (!admin) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials - admin not found'
+      });
+    }
+
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, admin.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({
+        success: false,
+        message: 'Invalid credentials - wrong password'
+      });
+    }
+
+    // Update last login
+    admin.lastLoginAt = new Date();
+    admin.lastIp = req.ip || req.connection.remoteAddress;
+    await admin.save();
+
+    // Generate JWT token
+    const token = jwt.sign(
+      { id: admin._id, isAdmin: true, email: admin.email },
+      process.env.JWT_SECRET || 'eraX_secret_key_2024',
+      { expiresIn: '30d' }
+    );
+
+    console.log('✅ Admin logged in:', admin.email);
+
+    res.status(200).json({
+      success: true,
+      message: 'Admin login successful',
+      admin: {
+        id: admin._id,
+        fullName: admin.fullName,
+        email: admin.email,
+        isAdmin: admin.isAdmin,
+        lastLoginAt: admin.lastLoginAt
+      },
+      token
+    });
+
+  } catch (error) {
+    console.error('❌ ADMIN LOGIN ERROR:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to login',
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
 // GET /api/admin/dashboard/stats
+// =====================================================
 export const getDashboardStats = async (req, res) => {
   try {
     console.log("📊 Fetching dashboard stats...");
 
-    // Get all stats in parallel
     const [
       totalUsers,
       activeUsers,
@@ -18,29 +166,26 @@ export const getDashboardStats = async (req, res) => {
       pendingWithdrawals,
       totalDeposits,
       totalWithdrawals,
-      totalInvestments,
-      totalAdmins
+      totalInvestments
     ] = await Promise.all([
       User.countDocuments(),
-      User.countDocuments({ status: 'active' }),
+      User.countDocuments({ isVerified: true }),
       User.countDocuments({ isVerified: false }),
-      Deposit.countDocuments({ status: 'pending' }),
+      DepositRequest.countDocuments({ status: 'pending' }),
       Withdrawal.countDocuments({ status: 'pending' }),
-      Deposit.aggregate([
-        { $match: { status: 'completed' } },
+      DepositRequest.aggregate([
+        { $match: { status: { $in: ['confirmed', 'completed'] } } },
         { $group: { _id: null, total: { $sum: "$amount" } } }
       ]),
       Withdrawal.aggregate([
         { $match: { status: 'completed' } },
         { $group: { _id: null, total: { $sum: "$amount" } } }
       ]),
-      Investment.countDocuments({ status: { $in: ['active', 'claimed'] } }),
-      User.countDocuments({ role: 'admin' })
+      Investment.countDocuments({ status: { $in: ['active', 'claimed'] } })
     ]);
 
     const totalDepositVolume = totalDeposits[0]?.total || 0;
     const totalWithdrawalVolume = totalWithdrawals[0]?.total || 0;
-    const totalVolume = totalDepositVolume;
 
     const stats = {
       totalUsers: totalUsers || 0,
@@ -48,12 +193,10 @@ export const getDashboardStats = async (req, res) => {
       pendingVerifications: pendingVerifications || 0,
       pendingDeposits: pendingDeposits || 0,
       pendingWithdrawals: pendingWithdrawals || 0,
-      totalVolume: totalVolume || 0,
+      totalVolume: totalDepositVolume || 0,
       totalDeposits: totalDepositVolume || 0,
       totalWithdrawals: totalWithdrawalVolume || 0,
-      totalInvestments: totalInvestments || 0,
-      totalAdmins: totalAdmins || 0,
-      activeAdmins: totalAdmins || 0
+      totalInvestments: totalInvestments || 0
     };
 
     console.log("✅ Stats calculated:", stats);
@@ -74,14 +217,15 @@ export const getDashboardStats = async (req, res) => {
   }
 };
 
+// =====================================================
 // GET /api/admin/dashboard/pending-actions
+// =====================================================
 export const getPendingActions = async (req, res) => {
   try {
     console.log("📋 Fetching pending actions...");
 
-    // Get all pending items in parallel
     const [pendingDeposits, pendingWithdrawals, pendingVerifications] = await Promise.all([
-      Deposit.find({ status: 'pending' })
+      DepositRequest.find({ status: 'pending' })
         .populate('user', 'email fullName')
         .sort({ createdAt: -1 })
         .limit(50),
@@ -97,18 +241,20 @@ export const getPendingActions = async (req, res) => {
         .limit(50)
     ]);
 
-    // Format pending actions
     const pending = [
       ...pendingDeposits.map(d => ({
         id: d._id,
         type: 'deposit',
         user: d.user,
         amount: d.amount,
+        currency: d.currency,
+        network: d.network,
         status: d.status,
         createdAt: d.createdAt,
         details: {
-          transactionId: d.transactionId,
-          paymentMethod: d.paymentMethod
+          transactionId: d.transactionId || d.txHash,
+          paymentMethod: d.paymentMethod,
+          email: d.email
         }
       })),
       ...pendingWithdrawals.map(w => ({
@@ -116,8 +262,9 @@ export const getPendingActions = async (req, res) => {
         type: 'withdrawal',
         user: w.user,
         amount: w.amount,
+        currency: w.currency,
         status: w.status,
-        createdAt: w.requestedAt,
+        createdAt: w.requestedAt || w.createdAt,
         details: {
           transactionId: w.transactionId,
           bankName: w.bankName,
@@ -135,7 +282,6 @@ export const getPendingActions = async (req, res) => {
       }))
     ];
 
-    // Sort by date (newest first)
     pending.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
 
     console.log(`✅ Found ${pending.length} pending actions`);
@@ -157,32 +303,71 @@ export const getPendingActions = async (req, res) => {
   }
 };
 
+// =====================================================
 // GET /api/admin/dashboard/activities
+// =====================================================
 export const getRecentActivities = async (req, res) => {
   try {
     console.log("📜 Fetching recent activities...");
 
-    const activities = await AdminLog.find({})
-      .sort({ createdAt: -1 })
-      .limit(100)
-      .populate('user', 'email fullName');
+    const [recentDeposits, recentWithdrawals, recentUsers] = await Promise.all([
+      DepositRequest.find({})
+        .populate('user', 'email fullName')
+        .sort({ createdAt: -1 })
+        .limit(20),
+      Withdrawal.find({})
+        .populate('user', 'email fullName')
+        .sort({ createdAt: -1 })
+        .limit(20),
+      User.find({})
+        .select('email fullName createdAt isVerified')
+        .sort({ createdAt: -1 })
+        .limit(20)
+    ]);
 
-    const formattedActivities = activities.map(log => ({
-      id: log._id,
-      action: log.action,
-      user: log.user,
-      admin: log.adminEmail,
-      details: log.details,
-      timestamp: log.createdAt,
-      success: log.success
-    }));
+    const activities = [
+      ...recentDeposits.map(d => ({
+        id: d._id,
+        action: d.status === 'completed' || d.status === 'confirmed' 
+          ? 'deposit_approved' 
+          : d.status === 'rejected' 
+            ? 'deposit_rejected' 
+            : 'deposit_pending',
+        user: d.user,
+        details: { amount: d.amount, currency: d.currency, email: d.email },
+        timestamp: d.updatedAt || d.createdAt,
+        success: d.status === 'completed' || d.status === 'confirmed'
+      })),
+      ...recentWithdrawals.map(w => ({
+        id: w._id,
+        action: w.status === 'completed' 
+          ? 'withdrawal_approved' 
+          : w.status === 'rejected' 
+            ? 'withdrawal_rejected' 
+            : 'withdrawal_pending',
+        user: w.user,
+        details: { amount: w.amount, currency: w.currency },
+        timestamp: w.updatedAt || w.createdAt,
+        success: w.status === 'completed'
+      })),
+      ...recentUsers.map(u => ({
+        id: u._id,
+        action: u.isVerified ? 'user_verified' : 'user_registered',
+        user: { email: u.email, fullName: u.fullName },
+        details: { email: u.email },
+        timestamp: u.createdAt,
+        success: true
+      }))
+    ];
 
-    console.log(`✅ Found ${formattedActivities.length} activities`);
+    activities.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+    console.log(`✅ Found ${activities.length} activities`);
 
     res.status(200).json({
       success: true,
-      activities: formattedActivities,
-      count: formattedActivities.length,
+      activities: activities.slice(0, 50),
+      count: activities.length,
       timestamp: new Date()
     });
 
@@ -196,74 +381,185 @@ export const getRecentActivities = async (req, res) => {
   }
 };
 
-// POST /api/admin/deposits/:id
+// =====================================================
+// GET /api/admin/users
+// =====================================================
+export const getAllUsers = async (req, res) => {
+  try {
+    console.log("👥 Fetching all users...");
+
+    const { page = 1, limit = 50, search = '' } = req.query;
+    const skip = (page - 1) * limit;
+
+    let query = {};
+    if (search) {
+      query = {
+        $or: [
+          { email: { $regex: search, $options: 'i' } },
+          { fullName: { $regex: search, $options: 'i' } }
+        ]
+      };
+    }
+
+    const [users, total] = await Promise.all([
+      User.find(query)
+        .select('-password -otp -otpExpires')
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(parseInt(limit)),
+      User.countDocuments(query)
+    ]);
+
+    console.log(`✅ Found ${users.length} users (page ${page})`);
+
+    res.status(200).json({
+      success: true,
+      users,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total,
+        pages: Math.ceil(total / limit)
+      },
+      timestamp: new Date()
+    });
+
+  } catch (error) {
+    console.error("❌ GET USERS ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch users",
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
+// PATCH /api/admin/users/:id/status
+// =====================================================
+export const toggleUserStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isVerified, isAdmin } = req.body;
+
+    console.log(`👤 [TOGGLE USER] ID: ${id}`);
+
+    const user = await User.findById(id);
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    if (isVerified !== undefined) {
+      user.isVerified = isVerified;
+      user.verifiedAt = isVerified ? new Date() : null;
+    }
+
+    if (isAdmin !== undefined) {
+      user.isAdmin = isAdmin;
+    }
+
+    await user.save();
+
+    console.log(`✅ User updated: ${user.email}`);
+
+    res.status(200).json({
+      success: true,
+      message: "User status updated successfully",
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        isVerified: user.isVerified,
+        isAdmin: user.isAdmin
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ TOGGLE USER ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to update user status",
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
+// POST /api/admin/deposit/:id
+// =====================================================
 export const handleDepositAction = async (req, res) => {
   try {
     const { id } = req.params;
-    const { action, adminId } = req.body;
+    const { action, reason } = req.body;
 
-    console.log(`💰 [DEPOSIT ${action.toUpperCase()}] ID: ${id}`);
+    console.log(`💰 [DEPOSIT ${action?.toUpperCase()}] ID: ${id}`);
 
-    const deposit = await Deposit.findById(id).populate('user', 'email');
+    const deposit = await DepositRequest.findById(id).populate('user', 'email fullName');
     if (!deposit) {
       return res.status(404).json({ success: false, message: "Deposit not found" });
     }
 
-    if (deposit.status !== 'pending') {
-      return res.status(400).json({ success: false, message: "Deposit already processed" });
+    if (deposit.status !== 'pending' && deposit.status !== 'confirming') {
+      return res.status(400).json({ 
+        success: false, 
+        message: `Deposit already processed (status: ${deposit.status})` 
+      });
     }
 
-    if (action === 'approve') {
-      // Add to user balance
-      const user = await User.findById(deposit.user._id);
+    if (action === 'approve' || action === 'confirm') {
+      const user = await User.findById(deposit.user._id || deposit.user);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
       user.balances.availableLiquidity = (user.balances.availableLiquidity || 0) + deposit.amount;
+      user.balances.totalDeposited = (user.balances.totalDeposited || 0) + deposit.amount;
       await user.save();
 
       deposit.status = 'completed';
       deposit.completedAt = new Date();
+      deposit.confirmedAt = new Date();
       await deposit.save();
 
-      // Log activity
-      await AdminLog.create({
-        action: 'deposit_approved',
-        adminId: adminId,
-        adminEmail: req.admin?.email || 'admin',
-        targetType: 'deposit',
-        targetId: deposit._id,
-        details: { amount: deposit.amount, userEmail: deposit.user.email },
-        success: true
-      });
+      console.log(`✅ Deposit approved: $${deposit.amount} for ${deposit.email}`);
 
-      console.log(`✅ Deposit approved: $${deposit.amount}`);
+      res.status(200).json({
+        success: true,
+        message: `Deposit of $${deposit.amount} approved successfully`,
+        deposit: {
+          id: deposit._id,
+          status: deposit.status,
+          amount: deposit.amount,
+          completedAt: deposit.completedAt
+        },
+        userBalance: user.balances.availableLiquidity
+      });
 
     } else if (action === 'reject') {
       deposit.status = 'rejected';
-      deposit.rejectionReason = req.body.reason || 'Rejected by admin';
+      deposit.rejectionReason = reason || 'Rejected by admin';
+      deposit.rejectedAt = new Date();
       await deposit.save();
 
-      // Log activity
-      await AdminLog.create({
-        action: 'deposit_rejected',
-        adminId: adminId,
-        adminEmail: req.admin?.email || 'admin',
-        targetType: 'deposit',
-        targetId: deposit._id,
-        details: { amount: deposit.amount, userEmail: deposit.user.email },
-        success: true
+      console.log(`❌ Deposit rejected: $${deposit.amount}`);
+
+      res.status(200).json({
+        success: true,
+        message: `Deposit rejected successfully`,
+        deposit: {
+          id: deposit._id,
+          status: deposit.status,
+          amount: deposit.amount,
+          rejectionReason: deposit.rejectionReason
+        }
       });
 
-      console.log(`❌ Deposit rejected: $${deposit.amount}`);
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid action. Use 'approve' or 'reject'" 
+      });
     }
-
-    res.status(200).json({
-      success: true,
-      message: `Deposit ${action}d successfully`,
-      deposit: {
-        id: deposit._id,
-        status: deposit.status,
-        amount: deposit.amount
-      }
-    });
 
   } catch (error) {
     console.error("❌ DEPOSIT ACTION ERROR:", error);
@@ -275,26 +571,34 @@ export const handleDepositAction = async (req, res) => {
   }
 };
 
-// POST /api/admin/withdrawals/:id
+// =====================================================
+// POST /api/admin/withdrawal/:id
+// =====================================================
 export const handleWithdrawalAction = async (req, res) => {
   try {
     const { id } = req.params;
-    const { action, adminId } = req.body;
+    const { action, reason } = req.body;
 
-    console.log(`💸 [WITHDRAWAL ${action.toUpperCase()}] ID: ${id}`);
+    console.log(`💸 [WITHDRAWAL ${action?.toUpperCase()}] ID: ${id}`);
 
-    const withdrawal = await Withdrawal.findById(id).populate('user', 'email');
+    const withdrawal = await Withdrawal.findById(id).populate('user', 'email fullName');
     if (!withdrawal) {
       return res.status(404).json({ success: false, message: "Withdrawal not found" });
     }
 
     if (withdrawal.status !== 'pending') {
-      return res.status(400).json({ success: false, message: "Withdrawal already processed" });
+      return res.status(400).json({ 
+        success: false, 
+        message: `Withdrawal already processed (status: ${withdrawal.status})` 
+      });
     }
 
     if (action === 'approve') {
-      // Deduct from user balance
-      const user = await User.findById(withdrawal.user._id);
+      const user = await User.findById(withdrawal.user._id || withdrawal.user);
+      if (!user) {
+        return res.status(404).json({ success: false, message: "User not found" });
+      }
+
       if ((user.balances.availableLiquidity || 0) < withdrawal.amount) {
         return res.status(400).json({ 
           success: false, 
@@ -303,53 +607,51 @@ export const handleWithdrawalAction = async (req, res) => {
       }
 
       user.balances.availableLiquidity -= withdrawal.amount;
+      user.balances.totalWithdrawn = (user.balances.totalWithdrawn || 0) + withdrawal.amount;
       await user.save();
 
       withdrawal.status = 'completed';
       withdrawal.completedAt = new Date();
       await withdrawal.save();
 
-      // Log activity
-      await AdminLog.create({
-        action: 'withdrawal_approved',
-        adminId: adminId,
-        adminEmail: req.admin?.email || 'admin',
-        targetType: 'withdrawal',
-        targetId: withdrawal._id,
-        details: { amount: withdrawal.amount, userEmail: withdrawal.user.email },
-        success: true
-      });
-
       console.log(`✅ Withdrawal approved: $${withdrawal.amount}`);
+
+      res.status(200).json({
+        success: true,
+        message: `Withdrawal of $${withdrawal.amount} approved successfully`,
+        withdrawal: {
+          id: withdrawal._id,
+          status: withdrawal.status,
+          amount: withdrawal.amount,
+          completedAt: withdrawal.completedAt
+        },
+        userBalance: user.balances.availableLiquidity
+      });
 
     } else if (action === 'reject') {
       withdrawal.status = 'rejected';
-      withdrawal.rejectionReason = req.body.reason || 'Rejected by admin';
+      withdrawal.rejectionReason = reason || 'Rejected by admin';
       await withdrawal.save();
 
-      // Log activity
-      await AdminLog.create({
-        action: 'withdrawal_rejected',
-        adminId: adminId,
-        adminEmail: req.admin?.email || 'admin',
-        targetType: 'withdrawal',
-        targetId: withdrawal._id,
-        details: { amount: withdrawal.amount, userEmail: withdrawal.user.email },
-        success: true
+      console.log(`❌ Withdrawal rejected: $${withdrawal.amount}`);
+
+      res.status(200).json({
+        success: true,
+        message: `Withdrawal rejected successfully`,
+        withdrawal: {
+          id: withdrawal._id,
+          status: withdrawal.status,
+          amount: withdrawal.amount,
+          rejectionReason: withdrawal.rejectionReason
+        }
       });
 
-      console.log(`❌ Withdrawal rejected: $${withdrawal.amount}`);
+    } else {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid action. Use 'approve' or 'reject'" 
+      });
     }
-
-    res.status(200).json({
-      success: true,
-      message: `Withdrawal ${action}d successfully`,
-      withdrawal: {
-        id: withdrawal._id,
-        status: withdrawal.status,
-        amount: withdrawal.amount
-      }
-    });
 
   } catch (error) {
     console.error("❌ WITHDRAWAL ACTION ERROR:", error);
@@ -361,11 +663,12 @@ export const handleWithdrawalAction = async (req, res) => {
   }
 };
 
+// =====================================================
 // POST /api/admin/users/:id/verify
+// =====================================================
 export const verifyUser = async (req, res) => {
   try {
     const { id } = req.params;
-    const { adminId } = req.body;
 
     console.log(`✅ [USER VERIFY] ID: ${id}`);
 
@@ -378,17 +681,6 @@ export const verifyUser = async (req, res) => {
     user.verifiedAt = new Date();
     await user.save();
 
-    // Log activity
-    await AdminLog.create({
-      action: 'user_verified',
-      adminId: adminId,
-      adminEmail: req.admin?.email || 'admin',
-      targetType: 'user',
-      targetId: user._id,
-      details: { userEmail: user.email },
-      success: true
-    });
-
     console.log(`✅ User verified: ${user.email}`);
 
     res.status(200).json({
@@ -397,6 +689,7 @@ export const verifyUser = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
+        fullName: user.fullName,
         isVerified: user.isVerified
       }
     });
@@ -406,6 +699,46 @@ export const verifyUser = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Failed to verify user",
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
+// GET /api/admin/users/export
+// =====================================================
+export const exportUsersCSV = async (req, res) => {
+  try {
+    console.log("📤 Exporting users as CSV...");
+
+    const users = await User.find({})
+      .select('email fullName isVerified isAdmin createdAt lastLoginAt')
+      .sort({ createdAt: -1 });
+
+    const headers = ['Email', 'Full Name', 'Verified', 'Admin', 'Created At', 'Last Login'];
+    const rows = users.map(u => [
+      u.email,
+      u.fullName || '',
+      u.isVerified ? 'Yes' : 'No',
+      u.isAdmin ? 'Yes' : 'No',
+      u.createdAt?.toISOString() || '',
+      u.lastLoginAt?.toISOString() || ''
+    ]);
+
+    const csv = [
+      headers.join(','),
+      ...rows.map(row => row.map(cell => `"${cell}"`).join(','))
+    ].join('\n');
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename=users.csv');
+    res.status(200).send(csv);
+
+  } catch (error) {
+    console.error("❌ EXPORT CSV ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export users",
       error: error.message
     });
   }
