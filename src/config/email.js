@@ -4,6 +4,7 @@ import nodemailer from 'nodemailer';
 console.log('\n🔍 ===== DEBUGGING .env LOADING =====');
 console.log('process.env.RESEND_API_KEY:', process.env.RESEND_API_KEY ? '✅ EXISTS' : '❌ MISSING');
 console.log('process.env.RESEND_API_KEY value:', process.env.RESEND_API_KEY);
+console.log('process.env.RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
 console.log('process.env.NODE_ENV:', process.env.NODE_ENV);
 console.log('=====================================\n');
 
@@ -25,8 +26,8 @@ const DEPOSIT_EMAIL_PORT = process.env.DEPOSIT_EMAIL_PORT || "587";
 const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER;
 const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS;
 
-// Resend config
-const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev';
+// Resend config - ✅ UPDATED TO USE erax.company
+const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'noreply@erax.company';
 
 console.log('\n' + '='.repeat(70));
 console.log('📧 EMAIL CONFIGURATION LOADED');
@@ -37,14 +38,16 @@ console.log('USE_RESEND value:', USE_RESEND);
 
 if (USE_RESEND) {
   console.log('From Email:', RESEND_FROM_EMAIL);
+  console.log('Domain:', RESEND_FROM_EMAIL.split('@')[1]);
   console.log('API Key:', RESEND_API_KEY.substring(0, 15) + '...');
+  console.log('\n⚠️  IMPORTANT: Make sure erax.company is verified in Resend!');
+  console.log('👉 Go to: https://resend.com/domains to verify your domain');
 } else {
   console.log('⚠️  WARNING: Using Gmail SMTP (less reliable)');
   console.log('EMAIL_HOST:', EMAIL_HOST);
   console.log('EMAIL_PORT:', EMAIL_PORT);
   console.log('EMAIL_USER:', EMAIL_USER);
   console.log('EMAIL_PASS:', EMAIL_PASS ? `✓ Set (${EMAIL_PASS.length} chars)` : '✗ EMPTY - WILL FAIL!');
-  console.log('\n💡 FIX: Make sure dotenv.config() is called BEFORE importing email.js');
 }
 console.log('='.repeat(70) + '\n');
 
@@ -130,7 +133,7 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
   console.log('OTP:', otp);
   console.log('Type:', type);
   console.log('Service:', USE_RESEND ? 'Resend' : 'Gmail');
-  console.log('From:', USE_RESEND ? RESEND_FROM_EMAIL : EMAIL_USER);
+  console.log('From:', RESEND_FROM_EMAIL);
   console.log('Using Resend?', USE_RESEND);
   
   try {
@@ -198,8 +201,21 @@ export const sendOTPEmail = async (to, otp, type = 'registration') => {
     console.error('❌ FAILED TO SEND OTP EMAIL');
     console.error('Error:', error.message);
     console.error('Code:', error.code);
+    console.error('Response:', error.response);
     console.error('Full Error:', error);
     console.log('='.repeat(70) + '\n');
+    
+    // Helpful error messages
+    if (error.message.includes('550')) {
+      console.error('\n⚠️  DOMAIN VERIFICATION REQUIRED');
+      console.error('📋 To fix this error:');
+      console.error('1. Go to https://resend.com/domains');
+      console.error('2. Add your domain: erax.company');
+      console.error('3. Add the DNS records provided by Resend');
+      console.error('4. Wait 5-10 minutes for DNS propagation');
+      console.error('5. Update .env: RESEND_FROM_EMAIL=noreply@erax.company');
+      console.error('6. Restart your server\n');
+    }
     
     throw new Error(`Email sending failed: ${error.message}`);
   }
