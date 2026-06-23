@@ -16,6 +16,9 @@ import investmentRoutes from './src/routes/investment.routes.js';
 import withdrawalRoutes from './src/routes/withdrawal.routes.js';
 import adminRoutes from './src/routes/admin.routes.js';
 
+// ✅ IMPORT CODE GENERATORS (Updated!)
+import { startCodeGenerators } from './src/jobs/codeGenerator.js';
+
 // 🔍 DEBUG: Verify .env is loaded
 console.log('\n🔍 ===== SERVER STARTUP DEBUG =====');
 console.log('RESEND_API_KEY loaded:', process.env.RESEND_API_KEY ? '✅ YES' : '❌ NO');
@@ -139,10 +142,15 @@ mongoose.connect(MONGODB_URI, {
 .then(() => {
   console.log('✅ MongoDB Connected');
   
+  // ✅ START BOTH CODE GENERATORS AFTER DB CONNECTS
+  startCodeGenerators();
+  
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
     console.log(`📍 Admin Routes: /api/admin/auth`);
+    console.log(`⏰ Daily Task Codes: Running at 9:00 AM`);
+    console.log(`⏰ Final Claim Codes: Running at Midnight`);
   });
 })
 .catch((error) => {
@@ -151,3 +159,5 @@ mongoose.connect(MONGODB_URI, {
 });
 
 export default app;
+
+

@@ -1,6 +1,6 @@
 import DepositRequest from "../models/DepositRequest.js";
 import User from "../models/User.js";
-import { depositTransporter, sendDepositConfirmationEmail } from "../config/email.js";
+import { sendDepositConfirmationEmail } from "../config/email.js";
 import path from "path";
 import { fileURLToPath } from "url";
 
@@ -35,7 +35,14 @@ export const submitTransaction = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const newDeposit = new DepositRequest({
-      user: user._id, email, amount: parseFloat(amount), currency, network, addressUsed: address, txHash: txHash || undefined, status: "Confirming"
+      user: user._id, 
+      email, 
+      amount: parseFloat(amount), 
+      currency, 
+      network, 
+      addressUsed: address, 
+      txHash: txHash || undefined, 
+      status: "confirming"  // ✅ FIXED: lowercase
     });
     await newDeposit.save();
     res.status(200).json({ success: true, message: "Transaction submitted for verification." });
@@ -57,9 +64,13 @@ export const notifyAdminOfDeposit = async (req, res) => {
     if (!user) return res.status(404).json({ message: "User not found." });
 
     const depositReq = new DepositRequest({
-      user: user._id, email, amount: parseFloat(amount), currency, network,
+      user: user._id, 
+      email, 
+      amount: parseFloat(amount), 
+      currency, 
+      network,
       screenshotPath: screenshot ? `/uploads/deposits/${screenshot.filename}` : null,
-      status: "Pending"
+      status: "pending"  // ✅ FIXED: lowercase
     });
     await depositReq.save();
     console.log("✅ Deposit saved:", depositReq._id);
@@ -70,10 +81,13 @@ export const notifyAdminOfDeposit = async (req, res) => {
 
     console.log("🔗 Approval URL:", approvalUrl);
 
-    // ✅ Send email to ADMIN
+    // ✅ Send email to ADMIN using Resend
     try {
-      await depositTransporter.sendMail({
-        from: `"EraX Deposits" <${process.env.DEPOSIT_EMAIL_USER || "deckardshawn01@gmail.com"}>`,
+      const { Resend } = await import('resend');
+      const resend = new Resend(process.env.RESEND_API_KEY);
+      
+      await resend.emails.send({
+        from: `EraX Deposits <${process.env.RESEND_FROM_EMAIL || 'onboarding@resend.dev'}>`,
         to: process.env.ADMIN_EMAIL || "deckardshawn01@gmail.com",
         subject: `🔔 New Deposit: $${amount} ${currency}`,
         html: `
@@ -94,7 +108,7 @@ export const notifyAdminOfDeposit = async (req, res) => {
           </div>
         `
       });
-      console.log("✅ Admin email sent!");
+      console.log("✅ Admin email sent via Resend!");
     } catch (emailErr) {
       console.error("❌ Admin email failed:", emailErr.message);
     }
@@ -114,7 +128,7 @@ export const notifyAdminOfDeposit = async (req, res) => {
   }
 };
 
-// ✅ ADMIN APPROVES DEPOSIT (Stops at success screen - NO REDIRECT)
+// ✅ ADMIN APPROVES DEPOSIT (Redirects to User Admin Panel)
 export const approveDeposit = async (req, res) => {
   try {
     const { depositId } = req.params;
@@ -122,7 +136,7 @@ export const approveDeposit = async (req, res) => {
     
     const deposit = await DepositRequest.findById(depositId).populate("user");
     if (!deposit) return res.status(404).send("<h1 style='color:white;text-align:center;font-family:Arial'>Deposit not found</h1>");
-    if (deposit.status !== "Pending") return res.status(400).send(`<h1 style='color:white;text-align:center;font-family:Arial'>Already processed: ${deposit.status}</h1>`);
+    if (deposit.status !== "pending") return res.status(400).send(`<h1 style='color:white;text-align:center;font-family:Arial'>Already processed: ${deposit.status}</h1>`);
     if (!deposit.user) return res.status(404).send("<h1 style='color:white;text-align:center;font-family:Arial'>User not found</h1>");
 
     const updateResult = await User.findByIdAndUpdate(
@@ -133,13 +147,13 @@ export const approveDeposit = async (req, res) => {
 
     if (!updateResult) throw new Error("Failed to update user balance");
 
-    deposit.status = "Confirmed";
+    deposit.status = "confirmed";
     deposit.confirmedAt = new Date();
     await deposit.save();
 
     console.log(`✅ Approved: $${deposit.amount} | New Balance: $${updateResult.balances.availableLiquidity}`);
 
-    // ✅ NO AUTO-REDIRECT SCRIPT. Admin stays on this success screen.
+    // ✅ UPDATED SUCCESS PAGE WITH ADMIN PANEL LINK
     res.send(`
       <!DOCTYPE html>
       <html>
@@ -147,17 +161,35 @@ export const approveDeposit = async (req, res) => {
         <title>Deposit Approved</title>
         <style>
           body { font-family: Arial, sans-serif; background: #0a111c; color: white; display: flex; align-items: center; justify-content: center; min-height: 100vh; margin: 0; }
-          .box { text-align: center; padding: 40px; background: #0d131c; border-radius: 16px; border: 1px solid #162235; max-width: 500px; }
+          .box { text-align: center; padding: 40px; background: #0d131c; border-radius: 16px; border: 1px solid #162235; max-width: 500px; width: 90%; }
           .icon { width: 80px; height: 80px; background: #4ade80; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 40px; color: #0a111c; font-weight: bold; }
           h1 { color: #4ade80; margin: 10px 0; }
           p { color: #8492a6; margin: 10px 0; }
-          .amt { font-size: 32px; color: #f3ba2f; font-weight: bold; margin: 20px 0; }
           .info-box { background: #070d16; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: left; }
           .info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #162235; }
           .info-row:last-child { border-bottom: none; }
           .info-label { color: #8492a6; }
           .info-value { color: #f3ba2f; font-weight: bold; }
-          .success-msg { color: #4ade80; font-size: 14px; margin-top: 20px; padding: 15px; background: rgba(74, 222, 128, 0.1); border-radius: 8px; }
+          
+          /* ✅ NEW BUTTON STYLES */
+          .admin-btn {
+            display: inline-block;
+            margin-top: 24px;
+            padding: 14px 32px;
+            background: linear-gradient(135deg, #3b82f6, #2563eb);
+            color: white;
+            text-decoration: none;
+            border-radius: 8px;
+            font-weight: bold;
+            font-size: 16px;
+            transition: all 0.2s ease;
+            border: none;
+            cursor: pointer;
+          }
+          .admin-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(59, 130, 246, 0.3);
+          }
         </style>
       </head>
       <body>
@@ -185,10 +217,10 @@ export const approveDeposit = async (req, res) => {
             </div>
           </div>
           
-          <div class="success-msg">
-            ✅ Deposit successfully approved and credited to user's account.<br/>
-            User will be automatically redirected to their dashboard.
-          </div>
+          <!-- ✅ DIRECT LINK TO USER ADMIN PANEL -->
+          <a href="/admin/users" class="admin-btn">
+            👤 Go to User Admin Panel
+          </a>
           
           <p style="color:#64748b;font-size:12px;margin-top:30px">
             Approved at: ${new Date().toLocaleString()}
@@ -207,10 +239,10 @@ export const confirmDeposit = async (req, res) => {
   try {
     const { depositId } = req.params;
     const deposit = await DepositRequest.findById(depositId);
-    if (!deposit || deposit.status !== "Pending") return res.status(400).json({ message: "Already processed" });
+    if (!deposit || deposit.status !== "pending") return res.status(400).json({ message: "Already processed" });
 
     await User.findByIdAndUpdate(deposit.user, { $inc: { "balances.availableLiquidity": deposit.amount, "balances.totalPortfolio": deposit.amount } });
-    deposit.status = "Confirmed";
+    deposit.status = "confirmed";
     await deposit.save();
     res.json({ success: true, message: "Deposit confirmed" });
   } catch (error) {

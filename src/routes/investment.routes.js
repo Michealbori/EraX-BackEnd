@@ -1,20 +1,29 @@
-import express from "express";
-import {
+import express from 'express';
+import { 
   createInvestment,
   getUserInvestments,
-  earlyWithdrawal,
-  getSurveyQuestions,
-  submitSurvey,
-  claimInterest
-} from "../controllers/investment.controller.js";
+  completeDailyTask,
+  claimInterestWithCode,
+  getClaimCode,
+  earlyWithdrawal
+} from '../controllers/investment.controller.js';
 
 const router = express.Router();
 
-router.post("/create", createInvestment);
-router.get("/user/:email", getUserInvestments);
-router.post("/early-withdrawal/:id", earlyWithdrawal);
-router.get("/survey-questions/:investmentId", getSurveyQuestions);
-router.post("/submit-survey/:id", submitSurvey);
-router.post("/claim-interest/:id", claimInterest);
+// ✅ CREATE INVESTMENT
+router.post('/create', createInvestment);
+
+// ✅ GET INVESTMENTS FOR USER
+router.get('/user/:email', getUserInvestments);
+
+// ✅ DAILY TASK ROUTES
+router.post('/complete-daily-task/:investmentId', completeDailyTask);
+
+// ✅ CLAIM INTEREST WITH CODE
+router.post('/claim-with-code', claimInterestWithCode);
+router.get('/claim-code/:investmentId', getClaimCode);
+
+// ✅ EARLY WITHDRAWAL
+router.post('/early-withdrawal/:id', earlyWithdrawal);
 
 export default router;

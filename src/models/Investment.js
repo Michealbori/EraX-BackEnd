@@ -31,6 +31,7 @@ const InvestmentSchema = new mongoose.Schema({
     min: [50, "Minimum investment is $50"] 
   },
 
+  // ✅ INTEREST = 100% OF AMOUNT (MONEY DOUBLES)
   interestAmount: { 
     type: Number, 
     required: true 
@@ -40,32 +41,65 @@ const InvestmentSchema = new mongoose.Schema({
     type: Date, 
     default: Date.now 
   },
-  
-  maturityDate: { 
+
+  // ✅ 30-DAY TASK SYSTEM
+  totalDays: { 
+    type: Number, 
+    default: 30 
+  },
+  completedDays: { 
+    type: Number, 
+    default: 0 
+  },
+  missedDays: { 
+    type: Number, 
+    default: 0 
+  },
+  extensionDays: { 
+    type: Number, 
+    default: 0 
+  },
+  startDate: { 
+    type: Date, 
+    default: Date.now 
+  },
+  expectedEndDate: { 
     type: Date, 
     required: true 
   },
+  actualEndDate: { 
+    type: Date, 
+    required: true 
+  },
+  isComplete: { 
+    type: Boolean, 
+    default: false 
+  },
+
+  // ✅ DAILY TASK RECORDS
+  dailyTasks: [{
+    dayNumber: Number,
+    date: Date,
+    completed: { type: Boolean, default: false },
+    completedAt: Date,
+    taskCode: String
+  }],
+
+  // ✅ CLAIM CODE SYSTEM
+  claimCode: { 
+    type: String, 
+    sparse: true, 
+    unique: true 
+  },
+  codeGeneratedAt: Date,
+  codeClaimedAt: Date,
+  codeExpiresAt: Date,
 
   interestStatus: {
     type: String,
-    enum: ["pending", "survey_assigned", "survey_completed", "claimed", "early_withdrawn"],
+    enum: ["pending", "code_generated", "claimed", "early_withdrawn"],
     default: "pending"
   },
-  
-  assignedQuestions: [{
-    questionId: Number,
-    questionText: String,
-    options: [String]
-  }],
-  
-  surveyResponses: { 
-    type: Map, 
-    of: String, 
-    default: {} 
-  },
-  
-  surveyCompletedAt: { type: Date, default: null },
-  interestClaimedAt: { type: Date, default: null },
   
   earlyWithdrawalRequestedAt: { type: Date, default: null },
   earlyWithdrawalPenalty: { type: Number, default: 0 },
@@ -73,7 +107,7 @@ const InvestmentSchema = new mongoose.Schema({
   
   status: { 
     type: String, 
-    enum: ["active", "matured", "claimed", "cancelled", "early_withdrawn"], 
+    enum: ["active", "completed", "claimed", "cancelled", "early_withdrawn"], 
     default: "active", 
     index: true 
   },
@@ -90,51 +124,9 @@ const InvestmentSchema = new mongoose.Schema({
   toObject: { virtuals: true } 
 });
 
-// ✅ ADD THIS METHOD
-InvestmentSchema.methods.updateValue = function() {
-  const now = new Date();
-  const investedDate = this.investedAt;
-  
-  // Calculate days since investment
-  const daysSinceInvestment = Math.floor(
-    (now - investedDate) / (1000 * 60 * 60 * 24)
-  );
-  
-  // Calculate growth (100% return over 30 days = ~3.33% per day)
-  // Or you can use a different growth model
-  const dailyGrowthRate = 1.0333; // 3.33% daily growth
-  const growthMultiplier = Math.pow(dailyGrowthRate, daysSinceInvestment);
-  
-  // Calculate current value
-  const currentValue = this.amount * growthMultiplier;
-  const totalGrowth = currentValue - this.amount;
-  
-  // Update the document
-  this.currentValue = currentValue;
-  this.totalGrowth = totalGrowth;
-  this.growthPercentage = ((totalGrowth / this.amount) * 100).toFixed(2);
-  this.lastUpdated = now;
-  
-  return this.save();
-};
-
 // Indexes
 InvestmentSchema.index({ user: 1, status: 1 });
-InvestmentSchema.index({ maturityDate: 1, interestStatus: 1 });
-
-// Virtuals
-InvestmentSchema.virtual('isMatured').get(function() {
-  return new Date() >= this.maturityDate;
-});
-
-InvestmentSchema.virtual('daysUntilMaturity').get(function() {
-  const diff = this.maturityDate - new Date();
-  return Math.max(0, Math.ceil(diff / (1000 * 60 * 60 * 24)));
-});
-
-InvestmentSchema.virtual('daysSinceInvestment').get(function() {
-  const diff = new Date() - this.investedAt;
-  return Math.floor(diff / (1000 * 60 * 60 * 24));
-});
+InvestmentSchema.index({ actualEndDate: 1, interestStatus: 1 });
+InvestmentSchema.index({ isComplete: 1, claimCode: 1 });
 
 export default mongoose.model("Investment", InvestmentSchema);

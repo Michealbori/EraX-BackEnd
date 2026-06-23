@@ -1,44 +1,14 @@
 import Investment from "../models/Investment.js";
 import User from "../models/User.js";
-import { SURVEY_QUESTION_POOL, SURVEY_METADATA } from "../config/surveyQuestions.js";
 
-// Helper: Shuffle array and pick N items
-const getRandomQuestions = (pool, count) => {
-  const shuffled = [...pool].sort(() => 0.5 - Math.random());
-  return shuffled.slice(0, count);
-};
-
-// Calculate early withdrawal penalty
-const calculateEarlyWithdrawal = (investment) => {
-  const daysSinceInvestment = Math.floor(
-    (new Date() - investment.investedAt) / (1000 * 60 * 60 * 24)
-  );
-  
-  const interestAmount = investment.interestAmount || 0;
-  let penaltyPercentage = 0;
-  
-  if (daysSinceInvestment <= 7) {
-    penaltyPercentage = 50;
-  } else if (daysSinceInvestment <= 14) {
-    penaltyPercentage = 30;
-  } else if (daysSinceInvestment <= 21) {
-    penaltyPercentage = 15;
-  } else if (daysSinceInvestment < 30) {
-    penaltyPercentage = 5;
-  } else {
-    penaltyPercentage = 0;
+// Helper: Generate unique 8-character code
+const generateClaimCode = () => {
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '';
+  for (let i = 0; i < 8; i++) {
+    code += chars[Math.floor(Math.random() * chars.length)];
   }
-  
-  const penalty = (interestAmount * penaltyPercentage) / 100;
-  const payout = interestAmount - penalty;
-  
-  return {
-    daysSinceInvestment,
-    penaltyPercentage,
-    penalty: penalty.toFixed(2),
-    payout: payout.toFixed(2),
-    originalInterest: interestAmount.toFixed(2)
-  };
+  return code;
 };
 
 // POST /api/investment/create
@@ -75,15 +45,25 @@ export const createInvestment = async (req, res) => {
       });
     }
 
-    // Deduct from balance temporarily
+    // ✅ DEDUCT FROM BALANCE
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) - amountNum;
+    user.balances.totalPortfolio = (user.balances?.totalPortfolio || 0) + amountNum;
     
-    // ✅ 24-HOUR MATURITY
-    const maturityDate = new Date();
-    maturityDate.setHours(maturityDate.getHours() + 24);
+    // ✅ 30-DAY PLAN SETUP
+    const startDate = new Date();
+    const expectedEndDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
     
-    // Interest = 100% of principal
+    // ✅ INTEREST = 100% OF PRINCIPAL (MONEY DOUBLES)
     const interestAmount = amountNum;
+    
+    // ✅ CREATE 30 DAILY TASKS
+    const dailyTasks = Array.from({ length: 30 }, (_, i) => ({
+      dayNumber: i + 1,
+      date: new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000),
+      completed: false,
+      completedAt: null,
+      taskCode: null
+    }));
     
     // Generate transaction ID
     const transactionId = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
@@ -97,30 +77,49 @@ export const createInvestment = async (req, res) => {
       name: `${assetClass} Investment`,
       amount: amountNum,
       interestAmount: interestAmount,
-      maturityDate: maturityDate,
+      startDate: startDate,
+      expectedEndDate: expectedEndDate,
+      actualEndDate: expectedEndDate,
+      totalDays: 30,
+      completedDays: 0,
+      missedDays: 0,
+      extensionDays: 0,
+      isComplete: false,
+      dailyTasks: dailyTasks,
       interestStatus: 'pending',
       status: 'active',
-      transactionId: transactionId
+      transactionId: transactionId,
+      investedAt: startDate
     });
 
-    // Return principal to user's balance immediately
-    user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + amountNum;
+    // ✅ SAVE USER WITH DEDUCTED BALANCE
     await user.save();
 
     console.log(`✅ Investment created: $${amountNum} in ${assetClass}`);
-    console.log(`📅 Maturity date (24 hours): ${maturityDate.toISOString()}`);
+    console.log(`💰 Interest: $${interestAmount} (100% return - money will double)`);
+    console.log(`📅 Expected end date (30 days): ${expectedEndDate.toISOString()}`);
 
     res.status(201).json({
       success: true,
-      message: `Successfully invested $${amountNum}! Complete the survey after 24 hours to claim $${interestAmount} interest.`,
+      message: `Successfully invested $${amountNum}! Complete 30 daily tasks to double your money to $${amountNum * 2}.`,
       investment: {
         id: investment._id,
         transactionId: investment.transactionId,
         assetClass: investment.assetClass,
         amount: investment.amount,
         interestAmount: investment.interestAmount,
-        maturityDate: investment.maturityDate,
-        hoursUntilMaturity: Math.ceil((maturityDate - new Date()) / (1000 * 60 * 60))
+        totalReturn: amountNum * 2,
+        startDate: investment.startDate,
+        expectedEndDate: investment.expectedEndDate,
+        totalDays: investment.totalDays,
+        completedDays: investment.completedDays,
+        daysRemaining: 30
+      },
+      newBalance: user.balances.availableLiquidity,
+      balances: {
+        availableLiquidity: user.balances.availableLiquidity,
+        totalPortfolio: user.balances.totalPortfolio,
+        netProfitLoss: user.balances.netProfitLoss
       }
     });
 
@@ -134,7 +133,181 @@ export const createInvestment = async (req, res) => {
   }
 };
 
-// GET /api/investment/user/:email
+// ✅ POST /api/investment/complete-daily-task/:investmentId
+export const completeDailyTask = async (req, res) => {
+  try {
+    const { investmentId } = req.params;
+    const { email, taskCode } = req.body;
+
+    if (!email || !taskCode) {
+      return res.status(400).json({
+        success: false,
+        message: "Email and task code are required"
+      });
+    }
+
+    const investment = await Investment.findById(investmentId);
+    if (!investment) {
+      return res.status(404).json({ success: false, message: "Investment not found" });
+    }
+
+    if (investment.email !== email) {
+      return res.status(403).json({ success: false, message: "Unauthorized" });
+    }
+
+    if (investment.isComplete) {
+      return res.status(400).json({ success: false, message: "All tasks already completed" });
+    }
+
+    // Find today's task
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const todayTask = investment.dailyTasks.find(task => {
+      const taskDate = new Date(task.date);
+      taskDate.setHours(0, 0, 0, 0);
+      return taskDate.getTime() === today.getTime() && !task.completed;
+    });
+
+    if (!todayTask) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "No task available for today or already completed" 
+      });
+    }
+
+    // ✅ VALIDATE TASK CODE (8 characters)
+    if (taskCode.length !== 8) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Invalid task code. Must be 8 characters." 
+      });
+    }
+
+    // Mark task as completed
+    todayTask.completed = true;
+    todayTask.completedAt = new Date();
+    todayTask.taskCode = taskCode.toUpperCase();
+
+    // Update completed days
+    investment.completedDays = investment.dailyTasks.filter(t => t.completed).length;
+
+    // Check if all 30 days completed
+    if (investment.completedDays === 30) {
+      investment.isComplete = true;
+      investment.actualEndDate = new Date();
+    }
+
+    await investment.save();
+
+    console.log(`✅ Daily task completed for investment ${investmentId}. Day ${investment.completedDays}/30`);
+
+    res.status(200).json({
+      success: true,
+      message: `Daily task completed! Day ${investment.completedDays} of 30`,
+      completedDays: investment.completedDays,
+      daysRemaining: 30 - investment.completedDays,
+      isComplete: investment.isComplete
+    });
+
+  } catch (error) {
+    console.error("❌ DAILY TASK ERROR:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to complete daily task",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// ✅ POST /api/investment/claim-with-code
+export const claimInterestWithCode = async (req, res) => {
+  try {
+    const { investmentId, code } = req.body;
+    const email = req.body.email;
+
+    if (!investmentId || !code) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Investment ID and code are required' 
+      });
+    }
+
+    const investment = await Investment.findOne({ 
+      _id: investmentId,
+      email: email
+    });
+
+    if (!investment) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Investment not found' 
+      });
+    }
+
+    if (!investment.isComplete) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Please complete all 30 daily tasks first' 
+      });
+    }
+
+    if (investment.claimCode !== code.toUpperCase()) {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Invalid claim code' 
+      });
+    }
+
+    if (investment.interestStatus === 'claimed') {
+      return res.status(400).json({ 
+        success: false,
+        message: 'Interest already claimed' 
+      });
+    }
+
+    // ✅ DOUBLE THE MONEY (Principal + Interest)
+    const totalReturn = investment.amount + investment.interestAmount;
+    
+    const user = await User.findOneAndUpdate(
+      { email },
+      { 
+        $inc: { 
+          "balances.availableLiquidity": totalReturn,
+          "balances.totalPortfolio": totalReturn,
+          "balances.netProfitLoss": investment.interestAmount
+        } 
+      },
+      { new: true }
+    );
+
+    // Update investment status
+    investment.interestStatus = 'claimed';
+    investment.codeClaimedAt = new Date();
+    investment.status = 'completed';
+    await investment.save();
+
+    console.log(`✅ Interest claimed: $${totalReturn} (doubled from $${investment.amount}) for ${email}`);
+
+    res.json({
+      success: true,
+      message: `🎉 Congratulations! Your money has doubled! $${totalReturn} added to your balance.`,
+      originalAmount: investment.amount,
+      interestEarned: investment.interestAmount,
+      totalReturn: totalReturn,
+      newBalance: user.balances.availableLiquidity
+    });
+
+  } catch (error) {
+    console.error('❌ Claim interest error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
+// ✅ GET /api/investment/user/:email
 export const getUserInvestments = async (req, res) => {
   try {
     const { email } = req.params;
@@ -152,18 +325,17 @@ export const getUserInvestments = async (req, res) => {
       .sort({ investedAt: -1 });
 
     const processedInvestments = investments.map(inv => {
-      const isMatured = inv.maturityDate ? (new Date() >= inv.maturityDate) : false;
-      const hoursUntilMaturity = inv.maturityDate 
-        ? Math.max(0, Math.ceil((inv.maturityDate - new Date()) / (1000 * 60 * 60)))
-        : 0;
-
-      const amount = inv.amount || 0;
-      const interestAmount = inv.interestAmount || 0;
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
       
-      let earlyWithdrawalInfo = null;
-      if (inv.status === 'active' && !isMatured) {
-        earlyWithdrawalInfo = calculateEarlyWithdrawal(inv);
-      }
+      // Calculate missed days
+      const missedDays = inv.dailyTasks.filter(task => {
+        const taskDate = new Date(task.date);
+        taskDate.setHours(0, 0, 0, 0);
+        return taskDate < today && !task.completed;
+      }).length;
+
+      const totalReturn = inv.amount + inv.interestAmount;
 
       return {
         id: inv._id,
@@ -171,33 +343,35 @@ export const getUserInvestments = async (req, res) => {
         assetClass: inv.assetClass || 'stocks',
         symbol: inv.symbol || 'STOCK',
         name: inv.name || 'Investment',
-        amount: amount.toFixed(2),
-        interestAmount: interestAmount.toFixed(2),
+        amount: inv.amount.toFixed(2),
+        interestAmount: inv.interestAmount.toFixed(2),
+        totalReturn: totalReturn.toFixed(2),
         investedAt: inv.investedAt,
-        maturityDate: inv.maturityDate,
-        hoursUntilMaturity: hoursUntilMaturity,
-        isMatured: isMatured,
+        startDate: inv.startDate,
+        expectedEndDate: inv.expectedEndDate,
+        actualEndDate: inv.actualEndDate,
+        totalDays: inv.totalDays,
+        completedDays: inv.completedDays,
+        missedDays: missedDays,
+        extensionDays: inv.extensionDays,
+        isComplete: inv.isComplete,
         interestStatus: inv.interestStatus || 'pending',
-        surveyCompleted: inv.surveyResponses && inv.surveyResponses.size > 0,
-        surveyCompletedAt: inv.surveyCompletedAt,
         status: inv.status || 'active',
-        earlyWithdrawalInfo: earlyWithdrawalInfo,
-        earlyWithdrawalPayout: inv.earlyWithdrawalPayout || 0,
-        earlyWithdrawalPenalty: inv.earlyWithdrawalPenalty || 0
+        claimCode: inv.claimCode,
+        codeExpiresAt: inv.codeExpiresAt,
+        dailyTasks: inv.dailyTasks,
+        daysRemaining: Math.max(0, inv.totalDays - inv.completedDays),
+        earlyWithdrawalInfo: null
       };
     });
 
     const activeInvestments = processedInvestments.filter(i => i.status === 'active');
-    const maturedInvestments = processedInvestments.filter(i => i.isMatured);
+    const completedInvestments = processedInvestments.filter(i => i.isComplete);
     
-    const pendingInterest = maturedInvestments
-      .filter(i => i.interestStatus !== 'claimed' && i.interestStatus !== 'early_withdrawn')
-      .reduce((sum, i) => sum + parseFloat(i.interestAmount || 0), 0);
-
     const summary = {
       totalInvested: activeInvestments.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0),
-      totalPendingInterest: pendingInterest,
-      maturedCount: maturedInvestments.length,
+      totalPotentialReturn: processedInvestments.reduce((sum, i) => sum + parseFloat(i.totalReturn || 0), 0),
+      completedCount: completedInvestments.length,
       activeCount: activeInvestments.length,
       investmentCount: processedInvestments.length
     };
@@ -219,166 +393,7 @@ export const getUserInvestments = async (req, res) => {
   }
 };
 
-// GET /api/investment/survey-questions/:investmentId
-export const getSurveyQuestions = async (req, res) => {
-  try {
-    const { investmentId } = req.params;
-    const { email } = req.query;
-
-    const investment = await Investment.findById(investmentId);
-    if (!investment) return res.status(404).json({ success: false, message: "Investment not found" });
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || investment.user.toString() !== user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
-
-    if (!investment.maturityDate || new Date() < investment.maturityDate) {
-      return res.status(400).json({ success: false, message: "Investment has not matured yet" });
-    }
-
-    // If questions are already assigned, return them (prevents changing on refresh)
-    if (investment.assignedQuestions && investment.assignedQuestions.length > 0) {
-      investment.interestStatus = 'survey_assigned';
-      await investment.save();
-      return res.status(200).json({
-        success: true,
-        questions: investment.assignedQuestions,
-        metadata: SURVEY_METADATA
-      });
-    }
-
-    // Assign new random questions
-    const selectedQuestions = getRandomQuestions(SURVEY_QUESTION_POOL, SURVEY_METADATA.questionsPerSession);
-    
-    investment.assignedQuestions = selectedQuestions.map(q => ({
-      questionId: q.id,
-      questionText: q.question,
-      options: q.options
-    }));
-    investment.interestStatus = 'survey_assigned';
-    await investment.save();
-
-    res.status(200).json({
-      success: true,
-      questions: investment.assignedQuestions,
-      metadata: SURVEY_METADATA
-    });
-
-  } catch (error) {
-    console.error("❌ GET SURVEY ERROR:", error);
-    res.status(500).json({ success: false, message: "Failed to fetch survey" });
-  }
-};
-
-// POST /api/investment/submit-survey/:id
-export const submitSurvey = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { email, responses } = req.body;
-
-    if (!responses || typeof responses !== 'object') {
-      return res.status(400).json({
-        success: false,
-        message: "Survey responses are required"
-      });
-    }
-
-    const investment = await Investment.findById(id);
-    if (!investment) {
-      return res.status(404).json({ success: false, message: "Investment not found" });
-    }
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || investment.user.toString() !== user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
-
-    if (investment.interestStatus === 'claimed') {
-      return res.status(400).json({ success: false, message: "Interest already claimed" });
-    }
-
-    if (investment.interestStatus === 'survey_completed') {
-      return res.status(400).json({ success: false, message: "Survey already submitted" });
-    }
-
-    // Validate that they answered the EXACT questions assigned to them
-    const assignedIds = investment.assignedQuestions.map(q => q.questionId.toString());
-    const answeredIds = Object.keys(responses);
-    
-    const missing = assignedIds.filter(id => !answeredIds.includes(id));
-    if (missing.length > 0) {
-      return res.status(400).json({ success: false, message: "Please answer all assigned questions." });
-    }
-
-    // Save responses
-    investment.surveyResponses = new Map(Object.entries(responses));
-    investment.surveyCompletedAt = new Date();
-    investment.interestStatus = 'survey_completed';
-    await investment.save();
-
-    res.status(200).json({
-      success: true,
-      message: "Survey submitted successfully! You can now claim your interest.",
-      interestAmount: (investment.interestAmount || 0).toFixed(2)
-    });
-
-  } catch (error) {
-    console.error("❌ SUBMIT SURVEY ERROR:", error);
-    res.status(500).json({ success: false, message: "Failed to submit survey" });
-  }
-};
-
-// POST /api/investment/claim-interest/:id
-export const claimInterest = async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { email } = req.body;
-
-    const investment = await Investment.findById(id);
-    if (!investment) {
-      return res.status(404).json({ success: false, message: "Investment not found" });
-    }
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || investment.user.toString() !== user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
-
-    if (investment.interestStatus !== 'survey_completed') {
-      return res.status(400).json({
-        success: false,
-        message: "Please complete the survey first"
-      });
-    }
-
-    const interestAmount = investment.interestAmount || 0;
-    user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + interestAmount;
-    user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + interestAmount;
-    await user.save();
-
-    investment.interestStatus = 'claimed';
-    investment.interestClaimedAt = new Date();
-    investment.status = 'claimed';
-    await investment.save();
-
-    res.status(200).json({
-      success: true,
-      message: `Interest of $${interestAmount.toFixed(2)} claimed successfully!`,
-      claimedAmount: interestAmount,
-      updatedBalances: {
-        availableLiquidity: user.balances.availableLiquidity,
-        netProfitLoss: user.balances.netProfitLoss
-      }
-    });
-
-  } catch (error) {
-    console.error("❌ CLAIM INTEREST ERROR:", error);
-    res.status(500).json({ success: false, message: "Failed to claim interest" });
-  }
-};
-
-// POST /api/investment/early-withdrawal/:id
+// ✅ POST /api/investment/early-withdrawal/:id
 export const earlyWithdrawal = async (req, res) => {
   try {
     const { id } = req.params;
@@ -403,19 +418,13 @@ export const earlyWithdrawal = async (req, res) => {
       });
     }
 
-    if (investment.isMatured) {
-      return res.status(400).json({
-        success: false,
-        message: "Investment has matured. Please complete the survey to claim full interest."
-      });
-    }
+    // ✅ 50% PENALTY ON ORIGINAL INVESTMENT
+    const penalty = investment.amount * 0.50;
+    const payout = investment.amount - penalty;
 
-    const withdrawalInfo = calculateEarlyWithdrawal(investment);
-    const payout = parseFloat(withdrawalInfo.payout);
-    const penalty = parseFloat(withdrawalInfo.penalty);
-
+    // Add payout to balance
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + payout;
-    user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + payout;
+    user.balances.totalPortfolio = Math.max(0, (user.balances?.totalPortfolio || 0) - investment.amount);
     await user.save();
 
     investment.interestStatus = 'early_withdrawn';
@@ -429,17 +438,16 @@ export const earlyWithdrawal = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: `Early withdrawal processed. You received $${payout.toFixed(2)} (penalty: $${penalty.toFixed(2)}).`,
+      message: `Early withdrawal processed. You received $${payout.toFixed(2)} (50% penalty: $${penalty.toFixed(2)}).`,
       withdrawalDetails: {
-        originalInterest: withdrawalInfo.originalInterest,
-        penalty: withdrawalInfo.penalty,
-        penaltyPercentage: withdrawalInfo.penaltyPercentage,
-        payout: withdrawalInfo.payout,
-        daysSinceInvestment: withdrawalInfo.daysSinceInvestment
+        originalAmount: investment.amount.toFixed(2),
+        penalty: penalty.toFixed(2),
+        penaltyPercentage: 50,
+        payout: payout.toFixed(2)
       },
       updatedBalances: {
         availableLiquidity: user.balances.availableLiquidity,
-        netProfitLoss: user.balances.netProfitLoss
+        totalPortfolio: user.balances.totalPortfolio
       }
     });
 
@@ -447,4 +455,49 @@ export const earlyWithdrawal = async (req, res) => {
     console.error("❌ EARLY WITHDRAWAL ERROR:", error);
     res.status(500).json({ success: false, message: "Failed to process early withdrawal" });
   }
+};
+
+// ✅ GET /api/investment/claim-code/:investmentId
+export const getClaimCode = async (req, res) => {
+  try {
+    const { investmentId } = req.params;
+    const email = req.query.email;
+
+    const investment = await Investment.findOne({ 
+      _id: investmentId,
+      email: email
+    });
+
+    if (!investment) {
+      return res.status(404).json({ 
+        success: false,
+        message: 'Investment not found' 
+      });
+    }
+
+    res.json({ 
+      success: true, 
+      code: investment.claimCode || null,
+      expiresAt: investment.codeExpiresAt,
+      status: investment.interestStatus,
+      isComplete: investment.isComplete
+    });
+
+  } catch (error) {
+    console.error('❌ Get claim code error:', error);
+    res.status(500).json({ 
+      success: false,
+      message: error.message 
+    });
+  }
+};
+
+// ✅ EXPORT ALL FUNCTIONS
+export default {
+  createInvestment,
+  getUserInvestments,
+  completeDailyTask,
+  claimInterestWithCode,
+  getClaimCode,
+  earlyWithdrawal
 };

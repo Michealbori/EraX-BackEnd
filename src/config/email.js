@@ -1,289 +1,277 @@
-import nodemailer from 'nodemailer';
+import { Resend } from 'resend';
 
-// 🔍 DEBUG: Check if .env is loaded
-console.log('\n🔍 ===== DEBUGGING .env LOADING =====');
-console.log('process.env.RESEND_API_KEY:', process.env.RESEND_API_KEY ? '✅ EXISTS' : '❌ MISSING');
-console.log('process.env.RESEND_API_KEY value:', process.env.RESEND_API_KEY);
-console.log('process.env.RESEND_FROM_EMAIL:', process.env.RESEND_FROM_EMAIL);
-console.log('process.env.NODE_ENV:', process.env.NODE_ENV);
-console.log('=====================================\n');
+// Initialize Resend
+const resend = new Resend(process.env.RESEND_API_KEY);
 
-// ✅ Determine environment
+// Configuration
 const IS_PRODUCTION = process.env.NODE_ENV === 'production';
-
-// ✅ Check if using Resend (recommended) or Gmail
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
-const USE_RESEND = RESEND_API_KEY && RESEND_API_KEY.startsWith('re_');
-
-// Gmail config (fallback)
-const EMAIL_HOST = process.env.EMAIL_HOST || "smtp.gmail.com";
-const EMAIL_PORT = process.env.EMAIL_PORT || "587";
-const EMAIL_USER = process.env.EMAIL_USER;
-const EMAIL_PASS = process.env.EMAIL_PASS;
-
-const DEPOSIT_EMAIL_HOST = process.env.DEPOSIT_EMAIL_HOST || "smtp.gmail.com";
-const DEPOSIT_EMAIL_PORT = process.env.DEPOSIT_EMAIL_PORT || "587";
-const DEPOSIT_EMAIL_USER = process.env.DEPOSIT_EMAIL_USER;
-const DEPOSIT_EMAIL_PASS = process.env.DEPOSIT_EMAIL_PASS;
-
-// Resend config - ✅ UPDATED TO USE erax.company
 const RESEND_FROM_EMAIL = process.env.RESEND_FROM_EMAIL || 'noreply@erax.company';
 
 console.log('\n' + '='.repeat(70));
-console.log('📧 EMAIL CONFIGURATION LOADED');
+console.log('📧 RESEND EMAIL SERVICE INITIALIZED');
 console.log('='.repeat(70));
 console.log('Environment:', IS_PRODUCTION ? '🌍 PRODUCTION' : '💻 DEVELOPMENT');
-console.log('Email Service:', USE_RESEND ? '✅ RESEND (Recommended)' : '⚠️ Gmail (Fallback)');
-console.log('USE_RESEND value:', USE_RESEND);
-
-if (USE_RESEND) {
-  console.log('From Email:', RESEND_FROM_EMAIL);
-  console.log('Domain:', RESEND_FROM_EMAIL.split('@')[1]);
-  console.log('API Key:', RESEND_API_KEY.substring(0, 15) + '...');
-  console.log('\n⚠️  IMPORTANT: Make sure erax.company is verified in Resend!');
-  console.log('👉 Go to: https://resend.com/domains to verify your domain');
-} else {
-  console.log('⚠️  WARNING: Using Gmail SMTP (less reliable)');
-  console.log('EMAIL_HOST:', EMAIL_HOST);
-  console.log('EMAIL_PORT:', EMAIL_PORT);
-  console.log('EMAIL_USER:', EMAIL_USER);
-  console.log('EMAIL_PASS:', EMAIL_PASS ? `✓ Set (${EMAIL_PASS.length} chars)` : '✗ EMPTY - WILL FAIL!');
-}
+console.log('From Email:', RESEND_FROM_EMAIL);
+console.log('Service: ✅ Resend Official SDK');
 console.log('='.repeat(70) + '\n');
 
-// ✅ Create transporter with optimized settings
-export const otpTransporter = nodemailer.createTransport(
-  USE_RESEND 
-    ? {
-        host: "smtp.resend.com",
-        port: 465,
-        secure: true,
-        auth: {
-          user: "resend",
-          pass: RESEND_API_KEY,
-        },
-      }
-    : {
-        host: EMAIL_HOST,
-        port: parseInt(EMAIL_PORT),
-        secure: EMAIL_PORT === "465",
-        auth: {
-          user: EMAIL_USER,
-          pass: EMAIL_PASS,
-        },
-        tls: { 
-          rejectUnauthorized: false,
-          minVersion: 'TLSv1.2'
-        },
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 60000,
-        debug: !IS_PRODUCTION,
-        logger: true
-      }
-);
-
-export const depositTransporter = nodemailer.createTransport(
-  USE_RESEND
-    ? {
-        host: "smtp.resend.com",
-        port: 465,
-        secure: true,
-        auth: {
-          user: "resend",
-          pass: RESEND_API_KEY,
-        },
-      }
-    : {
-        host: DEPOSIT_EMAIL_HOST,
-        port: parseInt(DEPOSIT_EMAIL_PORT),
-        secure: DEPOSIT_EMAIL_PORT === "465",
-        auth: {
-          user: DEPOSIT_EMAIL_USER,
-          pass: DEPOSIT_EMAIL_PASS,
-        },
-        tls: { 
-          rejectUnauthorized: false,
-          minVersion: 'TLSv1.2'
-        },
-        connectionTimeout: 30000,
-        greetingTimeout: 30000,
-        socketTimeout: 60000,
-        debug: !IS_PRODUCTION,
-        logger: true
-      }
-);
-
-// ✅ Verify transporter connection
-export const verifyTransporter = async (transporter, name = 'Email') => {
-  try {
-    await transporter.verify();
-    console.log(`✅ ${name} transporter is ready to send emails`);
-    return true;
-  } catch (error) {
-    console.error(`❌ ${name} transporter verification failed:`, error.message);
-    return false;
-  }
-};
-
-// ✅ Send OTP Email
-export const sendOTPEmail = async (to, otp, type = 'registration') => {
-  console.log('\n📧 ===== SENDING OTP EMAIL =====');
+// Send OTP/Task/Claim Email
+export const sendOTPEmail = async (to, code, type = 'registration') => {
+  console.log('\n📧 ===== SENDING EMAIL =====');
   console.log('To:', to);
-  console.log('OTP:', otp);
   console.log('Type:', type);
-  console.log('Service:', USE_RESEND ? 'Resend' : 'Gmail');
-  console.log('From:', RESEND_FROM_EMAIL);
-  console.log('Using Resend?', USE_RESEND);
+  console.log('Code:', code);
   
   try {
-    const mailOptions = {
-      from: USE_RESEND 
-        ? `EraX Security <${RESEND_FROM_EMAIL}>`
-        : `"EraX Security" <${EMAIL_USER}>`,
-      to: to,
-      subject: `EraX ${type === 'registration' ? 'Registration' : 'Verification'} OTP`,
-      html: `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="UTF-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1.0">
-          <title>EraX Email Verification</title>
-        </head>
-        <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: Arial, sans-serif;">
-          <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0e1a; padding: 40px 20px;">
-            <tr>
-              <td align="center">
-                <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden;">
-                  <tr>
-                    <td style="padding: 40px; text-align: center; border-bottom: 2px solid #f3ba2f;">
-                      <div style="font-size: 42px; font-weight: 900; color: #f3ba2f; letter-spacing: 3px;">ERA<span style="color: #ffffff;">X</span></div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 30px 40px;">
-                      <h1 style="color: #ffffff; margin: 0 0 15px 0; font-size: 28px;">Verify Your Email</h1>
-                      <p style="color: #94a3b8; margin: 0 0 25px 0;">Your verification code:</p>
-                      <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 100%); border-radius: 16px; padding: 35px; text-align: center;">
-                        <div style="font-size: 52px; font-weight: 900; color: #0f1419; letter-spacing: 12px; font-family: monospace;">${otp}</div>
-                        <div style="margin-top: 15px; font-size: 12px; color: #0f1419;">Expires in 10 minutes</div>
-                      </div>
-                      <div style="margin-top: 25px; padding: 15px; background: rgba(239, 68, 68, 0.1); border-left: 4px solid #ef4444; border-radius: 4px;">
-                        <p style="color: #ef4444; margin: 0 0 10px 0; font-weight: bold;">⚠️ Security Notice</p>
-                        <p style="color: #cbd5e1; margin: 0; font-size: 13px;">Never share this code with anyone. EraX staff will never ask for this code.</p>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr>
-                    <td style="padding: 20px 40px; text-align: center; color: #64748b; font-size: 12px;">
-                      © ${new Date().getFullYear()} EraX. All rights reserved.
-                    </td>
-                  </tr>
-                </table>
-              </td>
-            </tr>
-          </table>
-        </body>
-        </html>
-      `
-    };
+    let subject = '';
+    let html = '';
 
-    console.log('📤 Sending email...');
-    const info = await otpTransporter.sendMail(mailOptions);
-    console.log('✅ OTP EMAIL SENT SUCCESSFULLY!');
-    console.log('Message ID:', info.messageId);
+    if (type === 'claim_code') {
+      subject = '🎁 Your EraX Final Claim Code is Ready!';
+      html = getClaimCodeEmailTemplate(code);
+    } else if (type === 'daily_task') {
+      subject = '📅 Your Daily Task Code for Today';
+      html = getDailyTaskEmailTemplate(code);
+    } else {
+      subject = `EraX ${type === 'registration' ? 'Registration' : 'Verification'} OTP`;
+      html = getOTPEmailTemplate(code);
+    }
+
+    const { data, error } = await resend.emails.send({
+      from: `EraX Security <${RESEND_FROM_EMAIL}>`,
+      to: [to],
+      subject: subject,
+      html: html
+    });
+
+    if (error) {
+      console.error('❌ Resend API Error:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('✅ EMAIL SENT SUCCESSFULLY!');
+    console.log('Message ID:', data?.id);
     console.log('='.repeat(70) + '\n');
     
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: data?.id };
     
   } catch (error) {
-    console.error('❌ FAILED TO SEND OTP EMAIL');
+    console.error('❌ FAILED TO SEND EMAIL');
     console.error('Error:', error.message);
-    console.error('Code:', error.code);
-    console.error('Response:', error.response);
-    console.error('Full Error:', error);
-    console.log('='.repeat(70) + '\n');
-    
-    // Helpful error messages
-    if (error.message.includes('550')) {
-      console.error('\n⚠️  DOMAIN VERIFICATION REQUIRED');
-      console.error('📋 To fix this error:');
-      console.error('1. Go to https://resend.com/domains');
-      console.error('2. Add your domain: erax.company');
-      console.error('3. Add the DNS records provided by Resend');
-      console.error('4. Wait 5-10 minutes for DNS propagation');
-      console.error('5. Update .env: RESEND_FROM_EMAIL=noreply@erax.company');
-      console.error('6. Restart your server\n');
-    }
-    
     throw new Error(`Email sending failed: ${error.message}`);
   }
 };
 
-// ✅ Send Deposit Confirmation Email
+// ✅ FINAL CLAIM CODE TEMPLATE
+const getClaimCodeEmailTemplate = (claimCode) => {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Your EraX Claim Code</title></head>
+    <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: Arial, sans-serif;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0e1a; padding: 40px 20px;">
+        <tr><td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden;">
+            <tr><td style="padding: 40px; text-align: center; border-bottom: 2px solid #f3ba2f;">
+              <div style="font-size: 42px; font-weight: 900; color: #f3ba2f; letter-spacing: 3px;">ERA<span style="color: #ffffff;">X</span></div>
+            </td></tr>
+            <tr><td style="padding: 30px 40px;">
+              <h1 style="color: #ffffff; margin: 0 0 15px 0; font-size: 28px;">🎁 Your Final Claim Code is Ready!</h1>
+              <p style="color: #94a3b8; margin: 0 0 25px 0;">Congratulations! You've completed all 30 days. Use this code to double your money:</p>
+              
+              <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 100%); border-radius: 16px; padding: 35px; text-align: center;">
+                <div style="font-size: 52px; font-weight: 900; color: #0f1419; letter-spacing: 12px; font-family: monospace;">${claimCode}</div>
+                <div style="margin-top: 15px; font-size: 12px; color: #0f1419;">Expires in 7 days</div>
+              </div>
+              
+              <div style="margin-top: 25px; padding: 20px; background: rgba(16, 185, 129, 0.1); border-left: 4px solid #10b981; border-radius: 4px;">
+                <p style="color: #10b981; margin: 0 0 10px 0; font-weight: bold;">✅ How to Claim:</p>
+                <ol style="color: #cbd5e1; margin: 0; padding-left: 20px; font-size: 14px;">
+                  <li>Go to your EraX dashboard</li>
+                  <li>Click on "Claim Interest"</li>
+                  <li>Enter the code above</li>
+                  <li>Your money will be doubled instantly!</li>
+                </ol>
+              </div>
+              
+              <p style="color: #64748b; font-size: 12px; margin-top: 25px; text-align: center;">
+                This code expires in 7 days. Don't share it with anyone.
+              </p>
+            </td></tr>
+            <tr><td style="padding: 20px 40px; text-align: center; color: #64748b; font-size: 12px;">
+              © ${new Date().getFullYear()} EraX. All rights reserved.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+};
+
+// ✅ DAILY TASK CODE TEMPLATE
+const getDailyTaskEmailTemplate = (taskCode) => {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>Your Daily Task Code</title></head>
+    <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: Arial, sans-serif;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0e1a; padding: 40px 20px;">
+        <tr><td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden;">
+            <tr><td style="padding: 40px; text-align: center; border-bottom: 2px solid #3b82f6;">
+              <div style="font-size: 42px; font-weight: 900; color: #3b82f6; letter-spacing: 3px;">ERA<span style="color: #ffffff;">X</span></div>
+            </td></tr>
+            <tr><td style="padding: 30px 40px;">
+              <h1 style="color: #ffffff; margin: 0 0 15px 0; font-size: 28px;">📅 Your Daily Task Code</h1>
+              <p style="color: #94a3b8; margin: 0 0 25px 0;">Enter this code in your dashboard to complete today's task:</p>
+              
+              <div style="background: linear-gradient(135deg, #3b82f6 0%, #2563eb 100%); border-radius: 16px; padding: 35px; text-align: center;">
+                <div style="font-size: 52px; font-weight: 900; color: #ffffff; letter-spacing: 12px; font-family: monospace;">${taskCode}</div>
+                <div style="margin-top: 15px; font-size: 12px; color: rgba(255,255,255,0.8);">Valid for today only • Expires at midnight</div>
+              </div>
+              
+              <div style="margin-top: 25px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; border-radius: 4px;">
+                <p style="color: #3b82f6; margin: 0 0 10px 0; font-weight: bold;">ℹ️ Instructions:</p>
+                <ol style="color: #cbd5e1; margin: 0; padding-left: 20px; font-size: 14px;">
+                  <li>Open your EraX dashboard</li>
+                  <li>Navigate to "Daily Tasks"</li>
+                  <li>Enter the 8-character code above</li>
+                  <li>Mark today as complete!</li>
+                </ol>
+              </div>
+              
+              <p style="color: #64748b; font-size: 12px; margin-top: 25px; text-align: center;">
+                Don't share this code. A new code will be sent tomorrow morning.
+              </p>
+            </td></tr>
+            <tr><td style="padding: 20px 40px; text-align: center; color: #64748b; font-size: 12px;">
+              © ${new Date().getFullYear()} EraX. All rights reserved.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+};
+
+// Regular OTP Email Template
+const getOTPEmailTemplate = (otp) => {
+  return `
+    <!DOCTYPE html>
+    <html>
+    <head><meta charset="UTF-8"><title>EraX Verification</title></head>
+    <body style="margin: 0; padding: 0; background-color: #0a0e1a; font-family: Arial, sans-serif;">
+      <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0a0e1a; padding: 40px 20px;">
+        <tr><td align="center">
+          <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: linear-gradient(145deg, #1a1f2e 0%, #0f1419 100%); border-radius: 20px; overflow: hidden;">
+            <tr><td style="padding: 40px; text-align: center; border-bottom: 2px solid #f3ba2f;">
+              <div style="font-size: 42px; font-weight: 900; color: #f3ba2f; letter-spacing: 3px;">ERA<span style="color: #ffffff;">X</span></div>
+            </td></tr>
+            <tr><td style="padding: 30px 40px;">
+              <h1 style="color: #ffffff; margin: 0 0 15px 0; font-size: 28px;">Verify Your Email</h1>
+              <p style="color: #94a3b8; margin: 0 0 25px 0;">Your verification code:</p>
+              <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 100%); border-radius: 16px; padding: 35px; text-align: center;">
+                <div style="font-size: 52px; font-weight: 900; color: #0f1419; letter-spacing: 12px; font-family: monospace;">${otp}</div>
+                <div style="margin-top: 15px; font-size: 12px; color: #0f1419;">Expires in 10 minutes</div>
+              </div>
+            </td></tr>
+            <tr><td style="padding: 20px 40px; text-align: center; color: #64748b; font-size: 12px;">
+              © ${new Date().getFullYear()} EraX. All rights reserved.
+            </td></tr>
+          </table>
+        </td></tr>
+      </table>
+    </body>
+    </html>
+  `;
+};
+
+// Send Deposit Confirmation Email
 export const sendDepositConfirmationEmail = async (to, amount, currency, network) => {
   console.log('\n📧 ===== SENDING DEPOSIT EMAIL =====');
   console.log('To:', to);
   console.log('Amount:', amount, currency);
   console.log('Network:', network);
-  console.log('Service:', USE_RESEND ? 'Resend' : 'Gmail');
   
   try {
-    const mailOptions = {
-      from: USE_RESEND 
-        ? `EraX Deposits <${RESEND_FROM_EMAIL}>`
-        : `"EraX Deposits" <${DEPOSIT_EMAIL_USER}>`,
-      to: to,
+    const { data, error } = await resend.emails.send({
+      from: `EraX Deposits <${RESEND_FROM_EMAIL}>`,
+      to: [to],
       subject: `✅ Deposit Submitted - $${amount} ${currency}`,
       html: `
-        <!DOCTYPE html>
-        <html>
-        <body style="font-family: Arial; background: #f4f4f4; padding: 40px;">
+        <div style="font-family: Arial; background: #f4f4f4; padding: 40px;">
           <div style="max-width: 600px; margin: 0 auto; background: white; border-radius: 12px; padding: 40px;">
-            <div style="text-align: center; border-bottom: 2px solid #f3ba2f; padding-bottom: 20px; margin-bottom: 30px;">
-              <div style="font-size: 36px; font-weight: bold; color: #f3ba2f;">ERAX</div>
-            </div>
-            <h2 style="color: #0f172a; margin: 0 0 15px 0;">Deposit Submitted!</h2>
-            <p style="color: #475569; margin: 0 0 25px 0;">Your deposit request has been received.</p>
-            <div style="background: linear-gradient(135deg, #f3ba2f 0%, #f59e0b 100%); color: #0f172a; padding: 25px; border-radius: 12px; text-align: center; margin: 25px 0;">
-              <div style="font-size: 36px; font-weight: bold;">$${amount} ${currency}</div>
-            </div>
-            <div style="background: #f8fafc; padding: 20px; border-left: 4px solid #f3ba2f; border-radius: 4px; margin: 25px 0;">
-              <p style="margin: 5px 0;"><strong>Network:</strong> ${network}</p>
-              <p style="margin: 5px 0;"><strong>Status:</strong> ⏳ Pending Approval</p>
-              <p style="margin: 5px 0;"><strong>Processing Time:</strong> Usually within 10 minutes</p>
-            </div>
-            <p style="color: #64748b; font-size: 14px; margin-top: 30px;">© ${new Date().getFullYear()} EraX. All rights reserved.</p>
+            <h2 style="color: #0f172a;">Deposit Submitted!</h2>
+            <p style="color: #475569;">Your deposit of $${amount} ${currency} via ${network} has been received.</p>
           </div>
-        </body>
-        </html>
+        </div>
       `
-    };
+    });
 
-    console.log('📤 Sending deposit email...');
-    const info = await depositTransporter.sendMail(mailOptions);
+    if (error) {
+      console.error('❌ Resend API Error:', error);
+      throw new Error(error.message);
+    }
+
     console.log('✅ DEPOSIT EMAIL SENT SUCCESSFULLY!');
-    console.log('Message ID:', info.messageId);
-    console.log('='.repeat(70) + '\n');
-    
-    return { success: true, messageId: info.messageId };
+    return { success: true, messageId: data?.id };
     
   } catch (error) {
     console.error('❌ FAILED TO SEND DEPOSIT EMAIL');
     console.error('Error:', error.message);
-    console.error('Code:', error.code);
-    console.error('Full Error:', error);
-    console.log('='.repeat(70) + '\n');
-    
     throw new Error(`Email sending failed: ${error.message}`);
   }
 };
 
-export default { 
-  otpTransporter, 
-  depositTransporter, 
-  sendOTPEmail, 
+// Send Withdrawal Request Email
+export const sendWithdrawalRequestEmail = async ({ userEmail, userName, amount, accountNumber, bankName, accountName, transactionId }) => {
+  console.log('\n💸 ===== SENDING WITHDRAWAL NOTIFICATION =====');
+  console.log('To Admin:', process.env.ADMIN_EMAIL);
+  
+  try {
+    const { data, error } = await resend.emails.send({
+      from: `EraX Withdrawals <${RESEND_FROM_EMAIL}>`,
+      to: [process.env.ADMIN_EMAIL],
+      subject: `💸 New Withdrawal Request - $${amount.toFixed(2)}`,
+      html: `
+        <div style="font-family: Arial; max-width: 600px; margin: 0 auto; background: #0d131c; color: #e2e8f0; padding: 20px; border-radius: 12px;">
+          <h1 style="color: #f3ba2f; text-align: center;">💸 New Withdrawal Request</h1>
+          <div style="background: rgba(243,186,47,0.1); border: 1px solid #f3ba2f; border-radius: 8px; padding: 16px; margin-bottom: 24px; text-align: center;">
+            <div style="font-size: 32px; font-weight: bold; color: #f3ba2f;">$${amount.toFixed(2)}</div>
+          </div>
+          <div style="background: #070d16; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 16px;">
+            <h3 style="color: #f3ba2f; margin: 0 0 12px;">User Information</h3>
+            <div style="display: flex; justify-content: space-between; margin-bottom: 8px;">
+              <span style="color: #94a3b8;">Name:</span><strong>${userName}</strong>
+            </div>
+            <div style="display: flex; justify-content: space-between;">
+              <span style="color: #94a3b8;">Email:</span><strong>${userEmail}</strong>
+            </div>
+          </div>
+        </div>
+      `
+    });
+
+    if (error) {
+      console.error('❌ Resend API Error:', error);
+      throw new Error(error.message);
+    }
+
+    console.log('✅ WITHDRAWAL EMAIL SENT!');
+    return data;
+    
+  } catch (error) {
+    console.error('❌ FAILED TO SEND WITHDRAWAL EMAIL');
+    console.error('Error:', error.message);
+    throw error;
+  }
+};
+
+// Export everything
+export default {
+  sendOTPEmail,
   sendDepositConfirmationEmail,
-  verifyTransporter
+  sendWithdrawalRequestEmail
 };
