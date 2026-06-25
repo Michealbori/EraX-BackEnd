@@ -152,8 +152,353 @@ export const loginAdmin = async (req, res) => {
 };
 
 // =====================================================
-// GET /api/admin/dashboard/stats
+// USER MANAGEMENT CRUD FUNCTIONS
 // =====================================================
+
+// POST /api/admin/auth/users - CREATE USER
+export const createUserByAdmin = async (req, res) => {
+  try {
+    const { email, password, fullName, isAdmin = false, isVerified = true } = req.body;
+
+    console.log('\n' + '='.repeat(60));
+    console.log('👤 [ADMIN CREATE USER] Starting user creation');
+    console.log('Email:', email);
+    console.log('Full Name:', fullName);
+    console.log('='.repeat(60));
+
+    // Validate required fields
+    if (!email || !password || !fullName) {
+      return res.status(400).json({
+        success: false,
+        message: 'Email, password, and full name are required'
+      });
+    }
+
+    // Validate password strength
+    if (password.length < 8) {
+      return res.status(400).json({
+        success: false,
+        message: 'Password must be at least 8 characters'
+      });
+    }
+
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
+    if (existingUser) {
+      console.log('⚠️ User already exists:', email);
+      return res.status(400).json({
+        success: false,
+        message: 'User already exists with this email',
+        code: 'EMAIL_EXISTS'
+      });
+    }
+
+    // Hash password
+    const salt = await bcrypt.genSalt(10);
+    const hashedPassword = await bcrypt.hash(password, salt);
+
+    // Generate unique referral code
+    let userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+    let referralCodeExists = await User.findOne({ referralCode: userReferralCode });
+    while (referralCodeExists) {
+      userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
+      referralCodeExists = await User.findOne({ referralCode: userReferralCode });
+    }
+
+    // Create user
+    const user = await User.create({
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      fullName: fullName.trim(),
+      isAdmin: isAdmin,
+      isVerified: isVerified,
+      authProvider: 'email',
+      referralCode: userReferralCode,
+      verifiedAt: isVerified ? new Date() : null,
+      balances: {
+        availableLiquidity: 0,
+        totalDeposited: 0,
+        totalWithdrawn: 0,
+        netProfitLoss: 0,
+        totalInvested: 0,
+        currentInvestmentValue: 0,
+        referralCount: 0,
+        referralEarnings: 0
+      }
+    });
+
+    console.log('✅ User created successfully');
+    console.log('User ID:', user._id);
+    console.log('Email:', user.email);
+    console.log('Admin:', user.isAdmin);
+    console.log('Verified:', user.isVerified);
+    console.log('Referral Code:', user.referralCode);
+    console.log('='.repeat(60) + '\n');
+
+    res.status(201).json({
+      success: true,
+      message: 'User created successfully by admin',
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        isAdmin: user.isAdmin,
+        isVerified: user.isVerified,
+        referralCode: user.referralCode
+      }
+    });
+
+  } catch (error) {
+    console.error('\n❌ CREATE USER ERROR:', error);
+    console.error('Error stack:', error.stack);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate field detected',
+        code: 'DUPLICATE_KEY'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to create user',
+      error: error.message
+    });
+  }
+};
+
+// PUT /api/admin/auth/users/:id - UPDATE USER
+export const updateUserByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { 
+      fullName, 
+      email, 
+      phone, 
+      location, 
+      isAdmin, 
+      isVerified, 
+      twoStep,
+      balances 
+    } = req.body;
+
+    console.log('\n' + '='.repeat(60));
+    console.log('✏️ [ADMIN UPDATE USER] ID:', id);
+    console.log('='.repeat(60));
+
+    // Find user
+    const user = await User.findById(id);
+    if (!user) {
+      console.log('❌ User not found:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Track changes for logging
+    const changes = [];
+
+    // Update personal information
+    if (fullName !== undefined && fullName !== user.fullName) {
+      changes.push(`fullName: ${user.fullName} → ${fullName}`);
+      user.fullName = fullName;
+    }
+    
+    if (email !== undefined && email.toLowerCase().trim() !== user.email) {
+      // Check if new email is already in use
+      const existingEmail = await User.findOne({ 
+        email: email.toLowerCase().trim(),
+        _id: { $ne: id }
+      });
+      
+      if (existingEmail) {
+        return res.status(400).json({
+          success: false,
+          message: 'Email already in use by another user'
+        });
+      }
+      
+      changes.push(`email: ${user.email} → ${email}`);
+      user.email = email.toLowerCase().trim();
+    }
+    
+    if (phone !== undefined) {
+      changes.push(`phone: ${user.phone} → ${phone}`);
+      user.phone = phone;
+    }
+    
+    if (location !== undefined) {
+      changes.push(`location: ${user.location} → ${location}`);
+      user.location = location;
+    }
+
+    // Update account settings
+    if (isAdmin !== undefined && isAdmin !== user.isAdmin) {
+      changes.push(`isAdmin: ${user.isAdmin} → ${isAdmin}`);
+      user.isAdmin = isAdmin;
+    }
+    
+    if (isVerified !== undefined && isVerified !== user.isVerified) {
+      changes.push(`isVerified: ${user.isVerified} → ${isVerified}`);
+      user.isVerified = isVerified;
+      user.verifiedAt = isVerified ? new Date() : null;
+    }
+    
+    if (twoStep !== undefined && twoStep !== user.twoStep) {
+      changes.push(`twoStep: ${user.twoStep} → ${twoStep}`);
+      user.twoStep = twoStep;
+    }
+
+    // Update financial balances
+    if (balances && typeof balances === 'object') {
+      const balanceFields = [
+        'availableLiquidity',
+        'totalDeposited',
+        'totalWithdrawn',
+        'netProfitLoss',
+        'totalInvested',
+        'currentInvestmentValue'
+      ];
+
+      balanceFields.forEach(field => {
+        if (balances[field] !== undefined) {
+          const oldValue = user.balances[field] || 0;
+          const newValue = parseFloat(balances[field]) || 0;
+          
+          if (oldValue !== newValue) {
+            changes.push(`${field}: $${oldValue} → $${newValue}`);
+            user.balances[field] = newValue;
+          }
+        }
+      });
+    }
+
+    // Save user
+    await user.save();
+
+    console.log('✅ User updated successfully');
+    console.log('Changes made:', changes.length > 0 ? changes.join(', ') : 'No changes');
+    console.log('='.repeat(60) + '\n');
+
+    res.status(200).json({
+      success: true,
+      message: 'User updated successfully',
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        isAdmin: user.isAdmin,
+        isVerified: user.isVerified,
+        balances: user.balances
+      },
+      changesMade: changes
+    });
+
+  } catch (error) {
+    console.error('\n❌ UPDATE USER ERROR:', error);
+    console.error('Error stack:', error.stack);
+    
+    if (error.code === 11000) {
+      return res.status(400).json({
+        success: false,
+        message: 'Duplicate field detected',
+        code: 'DUPLICATE_KEY'
+      });
+    }
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update user',
+      error: error.message
+    });
+  }
+};
+
+// DELETE /api/admin/auth/users/:id - DELETE USER
+export const deleteUserByAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    console.log('\n' + '='.repeat(60));
+    console.log('🗑️ [ADMIN DELETE USER] ID:', id);
+    console.log('='.repeat(60));
+
+    // Find user
+    const user = await User.findById(id);
+    if (!user) {
+      console.log('❌ User not found:', id);
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Prevent admin from deleting themselves
+    if (req.admin && req.admin.id === id) {
+      console.log('⚠️ Admin attempted to delete themselves');
+      return res.status(400).json({
+        success: false,
+        message: 'You cannot delete your own account'
+      });
+    }
+
+    // Store user info for response
+    const userInfo = {
+      id: user._id,
+      email: user.email,
+      fullName: user.fullName
+    };
+
+    // Delete all related data
+    console.log('🔄 Deleting related data...');
+    
+    const [deletedInvestments, deletedDeposits, deletedWithdrawals] = await Promise.all([
+      Investment.deleteMany({ user: id }),
+      DepositRequest.deleteMany({ user: id }),
+      Withdrawal.deleteMany({ user: id })
+    ]);
+
+    console.log('✅ Deleted investments:', deletedInvestments.deletedCount);
+    console.log('✅ Deleted deposits:', deletedDeposits.deletedCount);
+    console.log('✅ Deleted withdrawals:', deletedWithdrawals.deletedCount);
+
+    // Delete user
+    await User.findByIdAndDelete(id);
+
+    console.log('✅ User deleted successfully');
+    console.log('Deleted user:', userInfo.email);
+    console.log('='.repeat(60) + '\n');
+
+    res.status(200).json({
+      success: true,
+      message: 'User and all related data deleted successfully',
+      user: userInfo,
+      deletedData: {
+        investments: deletedInvestments.deletedCount,
+        deposits: deletedDeposits.deletedCount,
+        withdrawals: deletedWithdrawals.deletedCount
+      }
+    });
+
+  } catch (error) {
+    console.error('\n❌ DELETE USER ERROR:', error);
+    console.error('Error stack:', error.stack);
+    
+    res.status(500).json({
+      success: false,
+      message: 'Failed to delete user',
+      error: error.message
+    });
+  }
+};
+
+// =====================================================
+// DASHBOARD FUNCTIONS
+// =====================================================
+
+// GET /api/admin/dashboard/stats
 export const getDashboardStats = async (req, res) => {
   try {
     console.log("📊 Fetching dashboard stats...");
@@ -217,9 +562,7 @@ export const getDashboardStats = async (req, res) => {
   }
 };
 
-// =====================================================
 // GET /api/admin/dashboard/pending-actions
-// =====================================================
 export const getPendingActions = async (req, res) => {
   try {
     console.log("📋 Fetching pending actions...");
@@ -303,9 +646,7 @@ export const getPendingActions = async (req, res) => {
   }
 };
 
-// =====================================================
 // GET /api/admin/dashboard/activities
-// =====================================================
 export const getRecentActivities = async (req, res) => {
   try {
     console.log("📜 Fetching recent activities...");
@@ -382,8 +723,10 @@ export const getRecentActivities = async (req, res) => {
 };
 
 // =====================================================
-// GET /api/admin/users
+// USER MANAGEMENT FUNCTIONS
 // =====================================================
+
+// GET /api/admin/users
 export const getAllUsers = async (req, res) => {
   try {
     console.log("👥 Fetching all users...");
@@ -434,9 +777,7 @@ export const getAllUsers = async (req, res) => {
   }
 };
 
-// =====================================================
 // PATCH /api/admin/users/:id/status
-// =====================================================
 export const toggleUserStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -485,8 +826,10 @@ export const toggleUserStatus = async (req, res) => {
 };
 
 // =====================================================
-// POST /api/admin/deposit/:id
+// DEPOSIT & WITHDRAWAL FUNCTIONS
 // =====================================================
+
+// POST /api/admin/deposit/:id
 export const handleDepositAction = async (req, res) => {
   try {
     const { id } = req.params;
@@ -571,9 +914,7 @@ export const handleDepositAction = async (req, res) => {
   }
 };
 
-// =====================================================
 // POST /api/admin/withdrawal/:id
-// =====================================================
 export const handleWithdrawalAction = async (req, res) => {
   try {
     const { id } = req.params;
@@ -663,9 +1004,7 @@ export const handleWithdrawalAction = async (req, res) => {
   }
 };
 
-// =====================================================
 // POST /api/admin/users/:id/verify
-// =====================================================
 export const verifyUser = async (req, res) => {
   try {
     const { id } = req.params;
@@ -705,8 +1044,10 @@ export const verifyUser = async (req, res) => {
 };
 
 // =====================================================
-// GET /api/admin/users/export
+// EXPORT FUNCTIONS
 // =====================================================
+
+// GET /api/admin/users/export
 export const exportUsersCSV = async (req, res) => {
   try {
     console.log("📤 Exporting users as CSV...");

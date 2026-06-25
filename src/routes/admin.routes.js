@@ -1,40 +1,67 @@
-import express from "express";
+import express from 'express';
 import {
-  // Admin Authentication
   registerAdmin,
   loginAdmin,
-  
-  // Admin Dashboard & Management
-  getDashboardStats,  // ✅ Changed from getAdminStats
+  getDashboardStats,
   getPendingActions,
-  getRecentActivities,  // ✅ Changed from getAdminActivities
+  getRecentActivities,
   getAllUsers,
-  handleDepositAction,  // ✅ Changed from processDepositAction
-  handleWithdrawalAction,  // ✅ Changed from processVerificationAction
+  createUserByAdmin,
+  updateUserByAdmin,
+  deleteUserByAdmin,
   toggleUserStatus,
-  exportUsersCSV,
-  verifyUser  // ✅ Added this export
-} from "../controllers/admin.controller.js";
+  handleDepositAction,
+  handleWithdrawalAction,
+  verifyUser,
+  exportUsersCSV
+} from '../controllers/admin.controller.js';
+import { verifyAdminToken } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-// ===== ADMIN AUTHENTICATION =====
-router.post("/register", registerAdmin);
-router.post("/login", loginAdmin);
+// ============================================
+// ADMIN AUTHENTICATION (Public Routes)
+// ============================================
+router.post('/auth/register', registerAdmin);
+router.post('/auth/login', loginAdmin);
 
-// ===== STATS & OVERVIEW =====
-router.get("/stats", getDashboardStats);  // ✅ Updated function name
-router.get("/pending-actions", getPendingActions);
-router.get("/activities", getRecentActivities);  // ✅ Updated function name
+// ============================================
+// DASHBOARD ROUTES (Protected)
+// ============================================
+router.get('/dashboard/stats', verifyAdminToken, getDashboardStats);
+router.get('/dashboard/pending-actions', verifyAdminToken, getPendingActions);
+router.get('/dashboard/activities', verifyAdminToken, getRecentActivities);
 
-// ===== USER MANAGEMENT =====
-router.get("/users", getAllUsers);
-router.get("/users/export", exportUsersCSV);
-router.patch("/users/:id/status", toggleUserStatus);
-router.post("/users/:id/verify", verifyUser);  // ✅ Added verify route
+// ============================================
+// USER MANAGEMENT ROUTES (Protected)
+// ============================================
 
-// ===== ACTION PROCESSING =====
-router.post("/deposit/:id", handleDepositAction);  // ✅ Updated function name
-router.post("/withdrawal/:id", handleWithdrawalAction);  // ✅ Updated function name
+// ✅ FIX: Export route MUST come before /users to avoid conflicts
+router.get('/users/export', verifyAdminToken, exportUsersCSV);
+
+// Get all users
+router.get('/users', verifyAdminToken, getAllUsers);
+
+// Create new user
+router.post('/users', verifyAdminToken, createUserByAdmin);
+
+// ✅ FIX: Specific routes with :id must come AFTER generic routes
+// Verify user
+router.post('/users/:id/verify', verifyAdminToken, verifyUser);
+
+// Toggle user status
+router.patch('/users/:id/status', verifyAdminToken, toggleUserStatus);
+
+// Update user by ID
+router.put('/users/:id', verifyAdminToken, updateUserByAdmin);
+
+// Delete user by ID
+router.delete('/users/:id', verifyAdminToken, deleteUserByAdmin);
+
+// ============================================
+// FINANCIAL OPERATIONS (Protected)
+// ============================================
+router.post('/deposit/:id', verifyAdminToken, handleDepositAction);
+router.post('/withdrawal/:id', verifyAdminToken, handleWithdrawalAction);
 
 export default router;

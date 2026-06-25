@@ -37,8 +37,8 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
-  // ✅ OTP FIELDS - FIXED: Changed from otpCode to otp
-  otp: {  // ✅ CHANGED FROM otpCode
+  // ✅ OTP FIELDS
+  otp: {
     type: String,
     default: null
   },
@@ -80,14 +80,17 @@ const userSchema = new mongoose.Schema({
   referralCode: {
     type: String,
     default: null,
-    unique: true,  // ✅ Added unique constraint
-    sparse: true   // ✅ Allows null values
+    unique: true,
+    sparse: true
   },
+  
+  // ✅ UPDATED: referredBy is now an OBJECT that stores ID, Name, and Email directly
   referredBy: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'User',
-    default: null
+    id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
+    name: { type: String, default: '' },
+    email: { type: String, default: '' }
   },
+  
   twoStep: {
     type: Boolean,
     default: false
@@ -105,7 +108,10 @@ const userSchema = new mongoose.Schema({
       stocks: { type: Number, default: 0 },
       bonds: { type: Number, default: 0 },
       commodities: { type: Number, default: 0 }
-    }
+    },
+    // ✅ Secure referral tracking fields
+    referralCount: { type: Number, default: 0 },
+    referralEarnings: { type: Number, default: 0 }
   },
   
   // ✅ TIMESTAMPS
@@ -121,8 +127,5 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-const User =
-  mongoose.models.User ||
-  mongoose.model("User", userSchema);
-
+const User = mongoose.models.User || mongoose.model("User", userSchema);
 export default User;

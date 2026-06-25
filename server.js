@@ -17,7 +17,7 @@ import withdrawalRoutes from './src/routes/withdrawal.routes.js';
 import adminRoutes from './src/routes/admin.routes.js';
 
 // ✅ IMPORT CODE GENERATORS (Updated!)
-import { startCodeGenerators } from './src/jobs/codeGenerator.js';
+import { startCodeGenerator } from './src/jobs/codeGenerator.js';
 
 // 🔍 DEBUG: Verify .env is loaded
 console.log('\n🔍 ===== SERVER STARTUP DEBUG =====');
@@ -79,8 +79,8 @@ app.use('/api/investment', investmentRoutes);
 // Withdrawal routes
 app.use('/api/withdrawal', withdrawalRoutes);
 
-// ✅ ADMIN ROUTES
-app.use('/api/admin/auth', adminRoutes);
+// ✅ ADMIN ROUTES - FIXED: Mount at /api/admin (not /api/admin/auth)
+app.use('/api/admin', adminRoutes);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -102,7 +102,7 @@ app.get('/', (req, res) => {
       deposit: '/api/deposit',
       investment: '/api/investment',
       withdrawal: '/api/withdrawal',
-      admin: '/api/admin/auth'
+      admin: '/api/admin'
     }
   });
 });
@@ -143,12 +143,12 @@ mongoose.connect(MONGODB_URI, {
   console.log('✅ MongoDB Connected');
   
   // ✅ START BOTH CODE GENERATORS AFTER DB CONNECTS
-  startCodeGenerators();
+  startCodeGenerator();
   
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📍 Admin Routes: /api/admin/auth`);
+    console.log(`📍 Admin Routes: /api/admin`);
     console.log(`⏰ Daily Task Codes: Running at 9:00 AM`);
     console.log(`⏰ Final Claim Codes: Running at Midnight`);
   });
@@ -159,5 +159,3 @@ mongoose.connect(MONGODB_URI, {
 });
 
 export default app;
-
-

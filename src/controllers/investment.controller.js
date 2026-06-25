@@ -11,11 +11,17 @@ const generateClaimCode = () => {
   return code;
 };
 
+// ==========================================
+// ⚠️ TESTING MODE TOGGLE
+// ==========================================
+const TESTING_MODE = false; // ✅ Set to FALSE for 24-hour production mode
+
 // POST /api/investment/create
 export const createInvestment = async (req, res) => {
   try {
     const { email, assetClass, amount } = req.body;
 
+    console.log("\n" + "=".repeat(60));
     console.log("💰 [INVESTMENT REQUEST]", { email, assetClass, amount });
 
     if (!email || !assetClass || !amount) {
@@ -45,30 +51,52 @@ export const createInvestment = async (req, res) => {
       });
     }
 
-    // ✅ DEDUCT FROM BALANCE
+    // ✅ STEP 1: DEDUCT FROM AVAILABLE BALANCE
+    const balanceBefore = user.balances.availableLiquidity;
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) - amountNum;
-    user.balances.totalPortfolio = (user.balances?.totalPortfolio || 0) + amountNum;
+    user.balances.totalInvested = (user.balances?.totalInvested || 0) + amountNum;
     
-    // ✅ 30-DAY PLAN SETUP
+    console.log(`💸 Balance Before: $${balanceBefore.toFixed(2)}`);
+    console.log(`💸 Balance After: $${user.balances.availableLiquidity.toFixed(2)}`);
+    console.log(`💸 Total Invested: $${user.balances.totalInvested.toFixed(2)}`);
+    
+    // ✅ STEP 2: DATE SETUP (24 HOURS)
     const startDate = new Date();
-    const expectedEndDate = new Date(startDate.getTime() + 30 * 24 * 60 * 60 * 1000);
+    let expectedEndDate;
+    let isComplete;
     
-    // ✅ INTEREST = 100% OF PRINCIPAL (MONEY DOUBLES)
-    const interestAmount = amountNum;
+    if (TESTING_MODE) {
+      expectedEndDate = new Date(startDate.getTime() + 20 * 1000);
+      isComplete = true; 
+      console.log(`⏰ [TEST MODE] Investment will be ready in 20 seconds.`);
+    } else {
+      // ✅ PRODUCTION: 24 HOURS
+      expectedEndDate = new Date(startDate.getTime() + 24 * 60 * 60 * 1000); 
+      isComplete = false; // Must complete the 24-hour task
+      console.log(`⏰ [PROD MODE] Investment ends in 24 hours at ${expectedEndDate.toLocaleTimeString()}`);
+    }
     
-    // ✅ CREATE 30 DAILY TASKS
-    const dailyTasks = Array.from({ length: 30 }, (_, i) => ({
-      dayNumber: i + 1,
-      date: new Date(startDate.getTime() + i * 24 * 60 * 60 * 1000),
-      completed: false,
-      completedAt: null,
-      taskCode: null
-    }));
+    // ✅ STEP 3: CALCULATE POTENTIAL RETURN (Money Doubles)
+    const interestAmount = amountNum; // 100% return
+    const potentialReturn = amountNum + interestAmount; 
     
-    // Generate transaction ID
+    console.log(`💰 Potential Return: $${potentialReturn.toFixed(2)}`);
+    
+    // ✅ STEP 4: CREATE 1 DAILY TASK (Due in 24 hours)
+    let dailyTasks = [];
+    if (!TESTING_MODE) {
+      dailyTasks = Array.from({ length: 1 }, (_, i) => ({
+        dayNumber: i + 1,
+        date: expectedEndDate, // Task becomes available exactly at the 24-hour mark
+        completed: false,
+        completedAt: null,
+        taskCode: null
+      }));
+    }
+    
     const transactionId = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-    // Create investment record
+    // ✅ STEP 5: CREATE INVESTMENT RECORD
     const investment = await Investment.create({
       user: user._id,
       email: user.email,
@@ -80,11 +108,11 @@ export const createInvestment = async (req, res) => {
       startDate: startDate,
       expectedEndDate: expectedEndDate,
       actualEndDate: expectedEndDate,
-      totalDays: 30,
+      totalDays: 1, // 1 task for the 24-hour period
       completedDays: 0,
       missedDays: 0,
       extensionDays: 0,
-      isComplete: false,
+      isComplete: isComplete, 
       dailyTasks: dailyTasks,
       interestStatus: 'pending',
       status: 'active',
@@ -92,33 +120,32 @@ export const createInvestment = async (req, res) => {
       investedAt: startDate
     });
 
-    // ✅ SAVE USER WITH DEDUCTED BALANCE
     await user.save();
 
-    console.log(`✅ Investment created: $${amountNum} in ${assetClass}`);
-    console.log(`💰 Interest: $${interestAmount} (100% return - money will double)`);
-    console.log(`📅 Expected end date (30 days): ${expectedEndDate.toISOString()}`);
+    console.log(`✅ Investment created: ${transactionId}`);
+    console.log("=".repeat(60) + "\n");
 
     res.status(201).json({
       success: true,
-      message: `Successfully invested $${amountNum}! Complete 30 daily tasks to double your money to $${amountNum * 2}.`,
+      message: TESTING_MODE 
+        ? `Successfully invested $${amountNum}! Claim code will generate in 20 seconds.`
+        : `Successfully invested $${amountNum}! Complete your task in 24 hours to double your money to $${potentialReturn}.`,
       investment: {
         id: investment._id,
         transactionId: investment.transactionId,
         assetClass: investment.assetClass,
         amount: investment.amount,
         interestAmount: investment.interestAmount,
-        totalReturn: amountNum * 2,
+        potentialReturn: potentialReturn,
         startDate: investment.startDate,
         expectedEndDate: investment.expectedEndDate,
         totalDays: investment.totalDays,
         completedDays: investment.completedDays,
-        daysRemaining: 30
+        daysRemaining: 1
       },
-      newBalance: user.balances.availableLiquidity,
       balances: {
         availableLiquidity: user.balances.availableLiquidity,
-        totalPortfolio: user.balances.totalPortfolio,
+        totalInvested: user.balances.totalInvested,
         netProfitLoss: user.balances.netProfitLoss
       }
     });
@@ -139,6 +166,13 @@ export const completeDailyTask = async (req, res) => {
     const { investmentId } = req.params;
     const { email, taskCode } = req.body;
 
+    if (TESTING_MODE) {
+      return res.status(400).json({
+        success: false,
+        message: "Daily tasks are disabled in TEST_MODE."
+      });
+    }
+
     if (!email || !taskCode) {
       return res.status(400).json({
         success: false,
@@ -147,36 +181,24 @@ export const completeDailyTask = async (req, res) => {
     }
 
     const investment = await Investment.findById(investmentId);
-    if (!investment) {
-      return res.status(404).json({ success: false, message: "Investment not found" });
-    }
+    if (!investment) return res.status(404).json({ success: false, message: "Investment not found" });
+    if (investment.email !== email) return res.status(403).json({ success: false, message: "Unauthorized" });
+    if (investment.isComplete) return res.status(400).json({ success: false, message: "Task already completed" });
 
-    if (investment.email !== email) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
-
-    if (investment.isComplete) {
-      return res.status(400).json({ success: false, message: "All tasks already completed" });
-    }
-
-    // Find today's task
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
     
+    // ✅ Find the first uncompleted task that is due (current time is past task date)
     const todayTask = investment.dailyTasks.find(task => {
-      const taskDate = new Date(task.date);
-      taskDate.setHours(0, 0, 0, 0);
-      return taskDate.getTime() === today.getTime() && !task.completed;
+      return !task.completed && now >= new Date(task.date);
     });
 
     if (!todayTask) {
       return res.status(400).json({ 
         success: false, 
-        message: "No task available for today or already completed" 
+        message: "No task available yet. Please wait until the 24-hour mark." 
       });
     }
 
-    // ✅ VALIDATE TASK CODE (8 characters)
     if (taskCode.length !== 8) {
       return res.status(400).json({ 
         success: false, 
@@ -189,24 +211,23 @@ export const completeDailyTask = async (req, res) => {
     todayTask.completedAt = new Date();
     todayTask.taskCode = taskCode.toUpperCase();
 
-    // Update completed days
     investment.completedDays = investment.dailyTasks.filter(t => t.completed).length;
 
-    // Check if all 30 days completed
-    if (investment.completedDays === 30) {
+    // Check if the 24-hour task is completed
+    if (investment.completedDays === 1) {
       investment.isComplete = true;
       investment.actualEndDate = new Date();
     }
 
     await investment.save();
 
-    console.log(`✅ Daily task completed for investment ${investmentId}. Day ${investment.completedDays}/30`);
+    console.log(`✅ 24-hour task completed for investment ${investmentId}.`);
 
     res.status(200).json({
       success: true,
-      message: `Daily task completed! Day ${investment.completedDays} of 30`,
+      message: `24-hour task completed! Your investment is now ready to claim.`,
       completedDays: investment.completedDays,
-      daysRemaining: 30 - investment.completedDays,
+      daysRemaining: 0,
       isComplete: investment.isComplete
     });
 
@@ -214,7 +235,7 @@ export const completeDailyTask = async (req, res) => {
     console.error("❌ DAILY TASK ERROR:", error);
     res.status(500).json({ 
       success: false, 
-      message: "Failed to complete daily task",
+      message: "Failed to complete task",
       error: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
   }
@@ -226,84 +247,66 @@ export const claimInterestWithCode = async (req, res) => {
     const { investmentId, code } = req.body;
     const email = req.body.email;
 
+    console.log("\n" + "=".repeat(60));
+    console.log("🎁 [CLAIM INTEREST REQUEST]", { investmentId, email });
+
     if (!investmentId || !code) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Investment ID and code are required' 
-      });
+      return res.status(400).json({ success: false, message: 'Investment ID and code are required' });
     }
 
-    const investment = await Investment.findOne({ 
-      _id: investmentId,
-      email: email
-    });
-
-    if (!investment) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Investment not found' 
-      });
-    }
-
+    const investment = await Investment.findOne({ _id: investmentId, email: email });
+    if (!investment) return res.status(404).json({ success: false, message: 'Investment not found' });
+    
     if (!investment.isComplete) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Please complete all 30 daily tasks first' 
-      });
+      return res.status(400).json({ success: false, message: 'Please complete the 24-hour task first' });
     }
 
     if (investment.claimCode !== code.toUpperCase()) {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Invalid claim code' 
-      });
+      return res.status(400).json({ success: false, message: 'Invalid claim code' });
     }
 
     if (investment.interestStatus === 'claimed') {
-      return res.status(400).json({ 
-        success: false,
-        message: 'Interest already claimed' 
-      });
+      return res.status(400).json({ success: false, message: 'Interest already claimed' });
     }
 
-    // ✅ DOUBLE THE MONEY (Principal + Interest)
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
+
     const totalReturn = investment.amount + investment.interestAmount;
     
-    const user = await User.findOneAndUpdate(
-      { email },
-      { 
-        $inc: { 
-          "balances.availableLiquidity": totalReturn,
-          "balances.totalPortfolio": totalReturn,
-          "balances.netProfitLoss": investment.interestAmount
-        } 
-      },
-      { new: true }
-    );
+    console.log(`💰 Total Return: $${totalReturn.toFixed(2)}`);
 
-    // Update investment status
+    // ✅ Update Balances
+    user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + totalReturn;
+    user.balances.totalInvested = Math.max(0, (user.balances?.totalInvested || 0) - investment.amount);
+    user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + investment.interestAmount;
+    await user.save();
+
+    // ✅ Update Investment Status
     investment.interestStatus = 'claimed';
     investment.codeClaimedAt = new Date();
     investment.status = 'completed';
     await investment.save();
 
-    console.log(`✅ Interest claimed: $${totalReturn} (doubled from $${investment.amount}) for ${email}`);
+    console.log(`✅ Interest claimed successfully!`);
+    console.log("=".repeat(60) + "\n");
 
     res.json({
       success: true,
-      message: `🎉 Congratulations! Your money has doubled! $${totalReturn} added to your balance.`,
+      message: `🎉 Congratulations! Your money has doubled! $${totalReturn.toFixed(2)} added to your balance.`,
       originalAmount: investment.amount,
       interestEarned: investment.interestAmount,
       totalReturn: totalReturn,
-      newBalance: user.balances.availableLiquidity
+      balances: {
+        availableLiquidity: user.balances.availableLiquidity,
+        totalInvested: user.balances.totalInvested,
+        netProfitLoss: user.balances.netProfitLoss
+      }
     });
 
   } catch (error) {
     console.error('❌ Claim interest error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: error.message 
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 
@@ -311,28 +314,19 @@ export const claimInterestWithCode = async (req, res) => {
 export const getUserInvestments = async (req, res) => {
   try {
     const { email } = req.params;
-
-    if (!email) {
-      return res.status(400).json({ success: false, message: "Email is required" });
-    }
+    if (!email) return res.status(400).json({ success: false, message: "Email is required" });
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
+    if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    const investments = await Investment.find({ user: user._id })
-      .sort({ investedAt: -1 });
+    const investments = await Investment.find({ user: user._id }).sort({ investedAt: -1 });
 
     const processedInvestments = investments.map(inv => {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
+      const now = new Date();
       
-      // Calculate missed days
+      // Calculate if a task is missed (only relevant if past expectedEndDate and not completed)
       const missedDays = inv.dailyTasks.filter(task => {
-        const taskDate = new Date(task.date);
-        taskDate.setHours(0, 0, 0, 0);
-        return taskDate < today && !task.completed;
+        return now >= new Date(task.date) && !task.completed;
       }).length;
 
       const totalReturn = inv.amount + inv.interestAmount;
@@ -353,27 +347,28 @@ export const getUserInvestments = async (req, res) => {
         totalDays: inv.totalDays,
         completedDays: inv.completedDays,
         missedDays: missedDays,
-        extensionDays: inv.extensionDays,
         isComplete: inv.isComplete,
         interestStatus: inv.interestStatus || 'pending',
         status: inv.status || 'active',
         claimCode: inv.claimCode,
         codeExpiresAt: inv.codeExpiresAt,
         dailyTasks: inv.dailyTasks,
-        daysRemaining: Math.max(0, inv.totalDays - inv.completedDays),
-        earlyWithdrawalInfo: null
+        daysRemaining: Math.max(0, inv.totalDays - inv.completedDays)
       };
     });
 
     const activeInvestments = processedInvestments.filter(i => i.status === 'active');
-    const completedInvestments = processedInvestments.filter(i => i.isComplete);
+    const completedInvestments = processedInvestments.filter(i => i.isComplete && i.interestStatus !== 'claimed');
     
     const summary = {
       totalInvested: activeInvestments.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0),
-      totalPotentialReturn: processedInvestments.reduce((sum, i) => sum + parseFloat(i.totalReturn || 0), 0),
-      completedCount: completedInvestments.length,
+      totalPotentialReturn: activeInvestments.reduce((sum, i) => sum + parseFloat(i.totalReturn || 0), 0),
       activeCount: activeInvestments.length,
-      investmentCount: processedInvestments.length
+      completedCount: completedInvestments.length,
+      investmentCount: processedInvestments.length,
+      availableLiquidity: user.balances?.availableLiquidity || 0,
+      totalInvestedBalance: user.balances?.totalInvested || 0,
+      netProfitLoss: user.balances?.netProfitLoss || 0
     };
 
     res.status(200).json({
@@ -399,32 +394,19 @@ export const earlyWithdrawal = async (req, res) => {
     const { id } = req.params;
     const { email } = req.body;
 
-    console.log(`💸 [EARLY WITHDRAWAL] Investment: ${id}`);
-
     const investment = await Investment.findById(id);
-    if (!investment) {
-      return res.status(404).json({ success: false, message: "Investment not found" });
-    }
+    if (!investment) return res.status(404).json({ success: false, message: "Investment not found" });
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || investment.user.toString() !== user._id.toString()) {
-      return res.status(403).json({ success: false, message: "Unauthorized" });
-    }
+    if (!user || investment.user.toString() !== user._id.toString()) return res.status(403).json({ success: false, message: "Unauthorized" });
+    if (investment.status !== 'active') return res.status(400).json({ success: false, message: "Investment is not active" });
 
-    if (investment.status !== 'active') {
-      return res.status(400).json({
-        success: false,
-        message: "Investment is not active"
-      });
-    }
-
-    // ✅ 50% PENALTY ON ORIGINAL INVESTMENT
     const penalty = investment.amount * 0.50;
     const payout = investment.amount - penalty;
 
-    // Add payout to balance
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + payout;
-    user.balances.totalPortfolio = Math.max(0, (user.balances?.totalPortfolio || 0) - investment.amount);
+    user.balances.totalInvested = Math.max(0, (user.balances?.totalInvested || 0) - investment.amount);
+    user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) - penalty;
     await user.save();
 
     investment.interestStatus = 'early_withdrawn';
@@ -434,20 +416,13 @@ export const earlyWithdrawal = async (req, res) => {
     investment.earlyWithdrawalPayout = payout;
     await investment.save();
 
-    console.log(`✅ Early withdrawal processed: $${payout} (penalty: $${penalty})`);
-
     res.status(200).json({
       success: true,
       message: `Early withdrawal processed. You received $${payout.toFixed(2)} (50% penalty: $${penalty.toFixed(2)}).`,
-      withdrawalDetails: {
-        originalAmount: investment.amount.toFixed(2),
-        penalty: penalty.toFixed(2),
-        penaltyPercentage: 50,
-        payout: payout.toFixed(2)
-      },
-      updatedBalances: {
+      balances: {
         availableLiquidity: user.balances.availableLiquidity,
-        totalPortfolio: user.balances.totalPortfolio
+        totalInvested: user.balances.totalInvested,
+        netProfitLoss: user.balances.netProfitLoss
       }
     });
 
@@ -463,17 +438,8 @@ export const getClaimCode = async (req, res) => {
     const { investmentId } = req.params;
     const email = req.query.email;
 
-    const investment = await Investment.findOne({ 
-      _id: investmentId,
-      email: email
-    });
-
-    if (!investment) {
-      return res.status(404).json({ 
-        success: false,
-        message: 'Investment not found' 
-      });
-    }
+    const investment = await Investment.findOne({ _id: investmentId, email: email });
+    if (!investment) return res.status(404).json({ success: false, message: 'Investment not found' });
 
     res.json({ 
       success: true, 
@@ -485,10 +451,7 @@ export const getClaimCode = async (req, res) => {
 
   } catch (error) {
     console.error('❌ Get claim code error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: error.message 
-    });
+    res.status(500).json({ success: false, message: error.message });
   }
 };
 

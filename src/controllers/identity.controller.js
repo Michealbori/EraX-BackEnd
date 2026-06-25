@@ -73,7 +73,6 @@ export const registerUserNode = async (req, res) => {
       });
     }
 
-    // ✅ Check if user already exists in database
     const existingUser = await User.findOne({ email: email.toLowerCase().trim() });
     if (existingUser) {
       console.log("⚠️ User already exists:", email);
@@ -93,24 +92,31 @@ export const registerUserNode = async (req, res) => {
     console.log("\n🔐 Generated OTP:", otp);
     console.log("📅 OTP expires:", otpExpires);
 
-    // ✅ Handle referral code
-    let referredBy = null;
+    let referredByData = null;
     
-    if (referralCode) {
-      const referrer = await User.findOne({ referralCode: referralCode });
+    if (referralCode && referralCode.trim()) {
+      const cleanReferralCode = referralCode.trim().toUpperCase();
+      console.log("\n🔍 Looking for referrer with code:", cleanReferralCode);
+      
+      const referrer = await User.findOne({ referralCode: cleanReferralCode });
+      
       if (referrer) {
-        referredBy = referrer._id;
-        console.log("✅ User referred by:", referrer.email);
-        console.log("✅ Referrer ID:", referrer._id);
+        referredByData = {
+          id: referrer._id,
+          name: referrer.fullName || 'Unknown User',
+          email: referrer.email
+        };
+        console.log("✅ Referrer found! Saving details directly:", referredByData);
       } else {
-        console.log("⚠️ Invalid referral code:", referralCode);
+        console.log("⚠️ Invalid referral code:", cleanReferralCode);
+        console.log("⚠️ No user found with this referral code in database");
       }
+    } else {
+      console.log("ℹ️ No referral code provided or empty");
     }
 
-    // ✅ Generate unique referral code
     let userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
     
-    // ✅ Ensure referral code is unique
     let referralCodeExists = await User.findOne({ referralCode: userReferralCode });
     while (referralCodeExists) {
       userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
@@ -119,7 +125,6 @@ export const registerUserNode = async (req, res) => {
 
     console.log("🏷️ Generated referral code:", userReferralCode);
 
-    // ✅ CREATE USER WITH OTP
     const user = await User.create({
       email: email.toLowerCase().trim(),
       password: hashedPassword,
@@ -131,28 +136,49 @@ export const registerUserNode = async (req, res) => {
       otp: otp,
       otpExpires: otpExpires,
       authProvider: 'email',
-      referredBy: referredBy,
-      referralCode: userReferralCode,  // ✅ Add unique referral code
+      referredBy: referredByData,
+      referralCode: userReferralCode,
       balances: {
         availableLiquidity: 0,
         totalDeposited: 0,
         totalWithdrawn: 0,
         netProfitLoss: 0,
         totalInvested: 0,
-        currentInvestmentValue: 0
+        currentInvestmentValue: 0,
+        referralCount: 0,
+        referralEarnings: 0
       }
     });
 
     console.log("✅ User created in database");
+    console.log("✅ User ID:", user._id);
+    console.log("✅ User referredBy saved as:", user.referredBy);
+
+    if (referredByData) {
+      try {
+        console.log("\n🔄 Attempting to increment referrer count...");
+        const updateResult = await User.findByIdAndUpdate(
+          referredByData.id, 
+          { $inc: { 'balances.referralCount': 1 } },
+          { new: true }
+        );
+        
+        if (updateResult) {
+          console.log("✅ Referrer count incremented successfully");
+          console.log("✅ New referral count:", updateResult.balances.referralCount);
+        } else {
+          console.log("⚠️ Failed to update referrer count - updateResult is null");
+        }
+      } catch (updateError) {
+        console.error("❌ Error incrementing referrer count:", updateError);
+      }
+    } else {
+      console.log("ℹ️ No referrer to increment");
+    }
+
     console.log("✅ OTP saved to database:", user.otp);
     console.log("✅ Referral code:", user.referralCode);
-    console.log("✅ Referred by:", referredBy || "None");
 
-    // ✅ SEND OTP EMAIL
-    console.log("\n📤 Attempting to send OTP email...");
-    console.log("To:", email);
-    console.log("OTP:", otp);
-    
     try {
       const emailSent = await sendOTPEmail(email, otp);
       
@@ -177,7 +203,7 @@ export const registerUserNode = async (req, res) => {
         email: user.email,
         fullName: user.fullName,
         isVerified: user.isVerified,
-        referralCode: user.referralCode  // ✅ Return referral code
+        referralCode: user.referralCode
       },
       token: generateToken(user._id)
     });
@@ -190,13 +216,11 @@ export const registerUserNode = async (req, res) => {
     console.error("Error keyValue:", error.keyValue);
     console.log("=".repeat(60) + "\n");
     
-    // ✅ Handle specific MongoDB duplicate key errors
     if (error.code === 11000) {
       console.log("🔍 Duplicate key error detected");
       console.log("🔍 Duplicate key pattern:", error.keyPattern);
       console.log("🔍 Duplicate key value:", error.keyValue);
 
-      // Check which field caused the duplicate
       if (error.keyPattern?.email) {
         return res.status(400).json({
           success: false,
@@ -213,7 +237,6 @@ export const registerUserNode = async (req, res) => {
         });
       }
 
-      // Generic duplicate key error
       return res.status(400).json({
         success: false,
         message: "Duplicate field detected. Please use different values.",
@@ -230,7 +253,6 @@ export const registerUserNode = async (req, res) => {
   }
 };
 
-// ✅ NEW: Check if email is available for registration
 export const checkEmailAvailability = async (req, res) => {
   try {
     const { email } = req.query;
@@ -244,7 +266,6 @@ export const checkEmailAvailability = async (req, res) => {
 
     const cleanEmail = email.toLowerCase().trim();
     
-    // Check if user exists in MongoDB
     const existingUser = await User.findOne({ email: cleanEmail });
     
     if (existingUser) {
@@ -507,14 +528,21 @@ export const resendOtpToken = async (req, res) => {
 };
 
 // =====================================================
-// PROFILE FUNCTIONS
+// PROFILE FUNCTIONS (FIXED TO INCLUDE 2FA & LOGIN DATA)
 // =====================================================
 
 export const getProfileNode = async (req, res) => {
   try {
     const { email } = req.query;
 
-    console.log("👤 [GET PROFILE] Email:", email);
+    console.log("\n👤 [GET PROFILE] Email:", email);
+
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Email is required" 
+      });
+    }
 
     const user = await User.findOne({ email: email.toLowerCase().trim() }).select("-password");
 
@@ -522,20 +550,46 @@ export const getProfileNode = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
+    console.log("✅ User found:", user.email);
+    console.log("🔍 User referredBy:", user.referredBy);
+
     res.status(200).json({
       success: true,
-      user
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        location: user.location,
+        photoURL: user.photoURL,
+        isVerified: user.isVerified,
+        isAdmin: user.isAdmin,
+        referralCode: user.referralCode,
+        referredBy: user.referredBy || null,
+        balances: user.balances,
+        twoStep: user.twoStep, 
+        lastLoginAt: user.lastLoginAt,
+        authProvider: user.authProvider,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
     });
 
   } catch (error) {
     console.error("❌ GET PROFILE ERROR:", error);
-    res.status(500).json({ success: false, message: "Failed to get profile" });
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to get profile",
+      error: error.message 
+    });
   }
 };
 
 export const updateProfileNode = async (req, res) => {
   try {
-    const { email, fullName, firstName, lastName, phone, location } = req.body;
+    const { email, fullName, firstName, lastName, phone, location, twoStep } = req.body;
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
@@ -548,6 +602,10 @@ export const updateProfileNode = async (req, res) => {
     if (lastName) user.lastName = lastName;
     if (phone) user.phone = phone;
     if (location) user.location = location;
+    
+    if (typeof twoStep === 'boolean') {
+      user.twoStep = twoStep;
+    }
 
     await user.save();
 
@@ -557,7 +615,8 @@ export const updateProfileNode = async (req, res) => {
       user: {
         id: user._id,
         email: user.email,
-        fullName: user.fullName
+        fullName: user.fullName,
+        twoStep: user.twoStep
       }
     });
 
@@ -891,7 +950,9 @@ export const handleGoogleSignIn = async (req, res) => {
         totalWithdrawn: 0,
         netProfitLoss: 0,
         totalInvested: 0,
-        currentInvestmentValue: 0
+        currentInvestmentValue: 0,
+        referralCount: 0,
+        referralEarnings: 0
       },
       lastLoginAt: new Date(),
       lastIp: req.ip || req.connection.remoteAddress
@@ -983,25 +1044,31 @@ export const getDashboardMetrics = async (req, res) => {
 };
 
 // =====================================================
-// REFERRAL FUNCTIONS
+// REFERRAL FUNCTIONS (SIMPLIFIED!)
 // =====================================================
 
 export const validateReferralCodeEndpoint = async (req, res) => {
   try {
     const { code } = req.params;
 
-    const user = await User.findOne({ referralCode: code });
+    console.log("\n🔍 [VALIDATE REFERRAL] Code:", code);
+    console.log("🔍 [VALIDATE REFERRAL] Uppercase:", code.toUpperCase());
+
+    const user = await User.findOne({ referralCode: code.toUpperCase() });
 
     if (!user) {
-      return res.status(404).json({ success: false, message: "Invalid referral code" });
+      console.log("❌ Referral code not found in database");
+      return res.status(404).json({ success: false, valid: false, message: "Invalid referral code" });
     }
+
+    console.log("✅ Referral code valid. Referrer:", user.fullName);
+    console.log("✅ Referrer email:", user.email);
 
     res.status(200).json({
       success: true,
       valid: true,
       referrer: {
-        name: user.fullName,
-        email: user.email
+        name: user.fullName ? user.fullName.split(' ')[0] : 'A Friend'
       }
     });
 
@@ -1015,7 +1082,14 @@ export const getMyReferralCode = async (req, res) => {
   try {
     const { email } = req.params;
 
-    console.log("🔗 [GET REFERRAL CODE] Email:", email);
+    console.log("\n🔗 [GET REFERRAL CODE] Email:", email);
+
+    if (!email) {
+      return res.status(400).json({ 
+        success: false, 
+        message: "Email is required" 
+      });
+    }
 
     const user = await User.findOne({ email: email.toLowerCase().trim() });
 
@@ -1034,16 +1108,22 @@ export const getMyReferralCode = async (req, res) => {
 
     console.log("✅ Referral code:", user.referralCode);
     console.log("✅ Referral link:", referralLink);
+    console.log("✅ Referred by:", user.referredBy);
 
     res.status(200).json({
       success: true,
       referralCode: user.referralCode,
-      referralLink: referralLink
+      referralLink: referralLink,
+      referredBy: user.referredBy || null 
     });
 
   } catch (error) {
     console.error("❌ GET REFERRAL CODE ERROR:", error);
-    res.status(500).json({ success: false, message: "Failed to get referral code" });
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to get referral code",
+      error: error.message 
+    });
   }
 };
 
@@ -1059,15 +1139,16 @@ export const getReferralStats = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const referralCount = await User.countDocuments({ referredBy: user._id });
+    const referralCount = user.balances?.referralCount || await User.countDocuments({ "referredBy.id": user._id });
 
     console.log("✅ Total referrals:", referralCount);
 
-    let earnings = 0;
+    let earnings = user.balances?.referralEarnings || 0;
+    
     if (referralCount >= 20) {
-      earnings = referralCount * 1;
+      earnings += 20;
     } else if (referralCount >= 10) {
-      earnings = referralCount * 1;
+      earnings += 10;
     }
 
     console.log("✅ Calculated earnings:", earnings);
@@ -1077,7 +1158,7 @@ export const getReferralStats = async (req, res) => {
       stats: {
         totalReferrals: referralCount,
         referralCode: user.referralCode || null,
-        earnings: earnings
+        earnings: parseFloat(earnings.toFixed(2))
       }
     });
 
@@ -1088,7 +1169,7 @@ export const getReferralStats = async (req, res) => {
 };
 
 // =====================================================
-// INVESTMENT FUNCTIONS
+// INVESTMENT FUNCTIONS (UPDATED WITH 20-SECOND TEST MODE)
 // =====================================================
 
 export const createInvestment = async (req, res) => {
@@ -1124,9 +1205,18 @@ export const createInvestment = async (req, res) => {
 
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) - amountNum;
     
-    const maturityDate = new Date();
-    maturityDate.setHours(maturityDate.getHours() + 24);
+    // ==========================================
+    // ⚠️ TIMER LOGIC (Starts counting immediately)
+    // ==========================================
+    const TESTING_MODE = true; // ⚠️ Set to FALSE for production (24 hours)
     
+    const maturityDate = new Date();
+    if (TESTING_MODE) {
+      maturityDate.setSeconds(maturityDate.getSeconds() + 20); // 20 seconds for testing
+    } else {
+      maturityDate.setHours(maturityDate.getHours() + 24);    // 24 hours for production
+    }
+
     const interestAmount = amountNum;
     const transactionId = `INV-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
@@ -1139,6 +1229,11 @@ export const createInvestment = async (req, res) => {
       amount: amountNum,
       interestAmount: interestAmount,
       maturityDate: maturityDate,
+      
+      // ✅ CRITICAL FIX: Added these fields so the codeGenerator cron job can find them!
+      actualEndDate: maturityDate, 
+      isComplete: true, 
+      
       interestStatus: 'pending',
       status: 'active',
       transactionId: transactionId
@@ -1149,7 +1244,7 @@ export const createInvestment = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: `Successfully invested $${amountNum}! Complete the survey after 24 hours to claim $${interestAmount} interest.`,
+      message: `Successfully invested $${amountNum}! ${TESTING_MODE ? 'Code will generate in 20 seconds.' : 'Complete the survey after 24 hours to claim interest.'}`,
       investment: {
         id: investment._id,
         transactionId: investment.transactionId,
@@ -1469,5 +1564,60 @@ export const earlyWithdrawal = async (req, res) => {
   } catch (error) {
     console.error("❌ EARLY WITHDRAWAL ERROR:", error);
     res.status(500).json({ success: false, message: "Failed to process early withdrawal" });
+  }
+};
+
+// =====================================================
+// GET LOGGED-IN USER DATA (FIXED TO INCLUDE 2FA & LOGIN DATA)
+// =====================================================
+
+export const getCurrentUser = async (req, res) => {
+  try {
+    const userId = req.user?.id;
+
+    if (!userId) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Not authenticated. Please login." 
+      });
+    }
+
+    const user = await User.findById(userId).select('-password -otp -otpExpires -emailChangeOtp -emailChangeOtpExpires -pendingEmail -firebaseUid -lastIp');
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.status(200).json({
+      success: true,
+      user: {
+        id: user._id,
+        email: user.email,
+        fullName: user.fullName,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        phone: user.phone,
+        location: user.location,
+        photoURL: user.photoURL,
+        isVerified: user.isVerified,
+        isAdmin: user.isAdmin,
+        referralCode: user.referralCode,
+        referredBy: user.referredBy || null,
+        balances: user.balances,
+        twoStep: user.twoStep,
+        lastLoginAt: user.lastLoginAt,
+        authProvider: user.authProvider,
+        createdAt: user.createdAt,
+        updatedAt: user.updatedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("❌ GET CURRENT USER ERROR:", error);
+    res.status(500).json({ 
+      success: false, 
+      message: "Failed to fetch logged-in user data",
+      error: error.message 
+    });
   }
 };

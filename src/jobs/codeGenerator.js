@@ -3,145 +3,110 @@ import Investment from '../models/Investment.js';
 import User from '../models/User.js';
 import { sendOTPEmail } from '../config/email.js';
 
-// Helper: Generate unique 8-character code
-const generateCode = () => {
-  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+/**
+ * Generate unique 8-character claim code
+ */
+const generateClaimCode = () => {
+  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let code = '';
   for (let i = 0; i < 8; i++) {
-    code += chars[Math.floor(Math.random() * chars.length)];
+    const randomIndex = Math.floor(Math.random() * characters.length);
+    code += characters[randomIndex];
   }
   return code;
 };
 
 /**
- * JOB 1: SEND DAILY TASK CODES
- * Runs every day at 9:00 AM
- */
-export const sendDailyTaskCodes = async () => {
-  try {
-    console.log('🔍 [DAILY TASK] Sending codes for today...');
-    
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    // Find all ACTIVE investments where today's task is NOT completed
-    const activeInvestments = await Investment.find({
-      status: 'active',
-      interestStatus: 'pending',
-      isComplete: false,
-      'dailyTasks.date': { $gte: today, $lt: new Date(today.getTime() + 24 * 60 * 60 * 1000) },
-      'dailyTasks.completed': false 
-    }).populate('user');
-
-    console.log(`📊 [DAILY TASK] Found ${activeInvestments.length} users needing today's code`);
-
-    for (const inv of activeInvestments) {
-      try {
-        // Generate today's specific task code
-        const taskCode = generateCode();
-
-        // Send email to user
-        if (inv.user && inv.user.email) {
-          await sendOTPEmail(inv.user.email, taskCode, 'daily_task');
-          console.log(`📧 [DAILY TASK] Sent code ${taskCode} to ${inv.user.email} for Day ${inv.completedDays + 1}`);
-        }
-      } catch (err) {
-        console.error(`❌ [DAILY TASK] Failed for ${inv._id}:`, err.message);
-      }
-    }
-
-    console.log('✅ [DAILY TASK] Dispatch complete');
-  } catch (error) {
-    console.error('❌ [DAILY TASK] Error:', error);
-  }
-};
-
-/**
- * JOB 2: GENERATE FINAL CLAIM CODE
- * Runs every day at midnight (00:00)
+ * Check for completed investments and generate claim codes
+ * TESTING MODE: Runs every 20 seconds
  */
 export const checkAndGenerateClaimCodes = async () => {
   try {
-    console.log('🔍 [CLAIM CODE] Checking for completed investments...');
+    console.log('\n🔍 [CODE GENERATOR] Checking for completed investments...');
+    console.log('⏰ Current time:', new Date().toLocaleTimeString());
     
     const now = new Date();
     
-    // Find investments that are marked complete but haven't received final claim code yet
+    // Find investments that are complete but don't have a claim code yet
     const completedInvestments = await Investment.find({
       isComplete: true,
       interestStatus: 'pending',
       claimCode: { $exists: false }
     }).populate('user');
 
-    console.log(`📊 [CLAIM CODE] Found ${completedInvestments.length} ready for final claim`);
+    console.log(`📊 Found ${completedInvestments.length} completed investments`);
 
-    for (const inv of completedInvestments) {
+    for (const investment of completedInvestments) {
       try {
-        // Handle extensions for missed days
-        const missedDays = inv.dailyTasks.filter(t => !t.completed).length;
+        // ⚠️ TESTING MODE: Temporarily bypassing the 24-hour maturity check so it generates immediately!
+        // REMEMBER TO UNCOMMENT THIS BLOCK BEFORE GOING TO PRODUCTION!
+        /*
+        if (investment.actualEndDate > now) {
+          console.log(`⏳ Investment ${investment._id} not ready yet. Wait until: ${investment.actualEndDate.toLocaleTimeString()}`);
+          continue;
+        }
+        */
+
+        // Generate unique claim code
+        let claimCode;
+        let isUnique = false;
         
-        if (missedDays > 0 && inv.extensionDays === 0) {
-          inv.missedDays = missedDays;
-          inv.extensionDays = missedDays;
-          inv.actualEndDate = new Date(inv.expectedEndDate.getTime() + missedDays * 24 * 60 * 60 * 1000);
-          await inv.save();
-          
-          if (inv.actualEndDate > now) {
-            console.log(`⏳ [CLAIM CODE] Extended ${inv._id} by ${missedDays} days`);
-            continue;
-          }
-        }
-
-        // Generate FINAL unique claim code (different from daily codes)
-        let claimCode, isUnique = false;
         while (!isUnique) {
-          claimCode = generateCode();
-          isUnique = !(await Investment.findOne({ claimCode }));
+          claimCode = generateClaimCode();
+          const existing = await Investment.findOne({ claimCode });
+          isUnique = !existing;
         }
 
-        inv.claimCode = claimCode;
-        inv.codeGeneratedAt = now;
-        inv.codeExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000);
-        inv.interestStatus = 'code_generated';
-        await inv.save();
+        // Update investment with claim code
+        investment.claimCode = claimCode;
+        investment.codeGeneratedAt = now;
+        investment.codeExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days expiry
+        investment.interestStatus = 'code_generated';
+        
+        await investment.save();
 
-        console.log(`✅ [CLAIM CODE] Generated FINAL code ${claimCode} for ${inv._id}`);
+        console.log(`✅ Generated code ${claimCode} for investment ${investment._id}`);
 
-        // Send final claim email
-        if (inv.user && inv.user.email) {
-          await sendOTPEmail(inv.user.email, claimCode, 'claim_code');
-          console.log(`📧 [CLAIM CODE] Sent final code to ${inv.user.email}`);
+        // Send email to user
+        try {
+          const user = investment.user;
+          if (user && user.email) {
+            // Sends the claim code via your existing email function
+            await sendOTPEmail(user.email, claimCode, 'claim_code'); 
+            console.log(`📧 Sent code to ${user.email}`);
+          }
+        } catch (emailError) {
+          console.error(`❌ Email failed:`, emailError.message);
         }
-      } catch (err) {
-        console.error(`❌ [CLAIM CODE] Error on ${inv._id}:`, err.message);
+
+      } catch (error) {
+        console.error(`❌ Error processing investment ${investment._id}:`, error);
       }
     }
 
-    console.log('✅ [CLAIM CODE] Check complete');
+    console.log('✅ [CODE GENERATOR] Check completed\n');
+    
   } catch (error) {
-    console.error('❌ [CLAIM CODE] Error:', error);
+    console.error('❌ [CODE GENERATOR] Error:', error);
   }
 };
 
 /**
- * START BOTH SCHEDULERS
+ * Schedule the code generator
+ * TESTING MODE: Runs every 20 seconds
  */
-export const startCodeGenerators = () => {
+export const startCodeGenerator = () => {
+  console.log('\n🚀 [TESTING MODE] Code generator starting...');
+  console.log('⏰ Will check every 20 seconds for testing\n');
+  
   // Run immediately on startup
-  sendDailyTaskCodes();
   checkAndGenerateClaimCodes();
   
-  // Schedule Daily Task Codes at 9:00 AM every day
-  cron.schedule('0 9 * * *', () => {
-    console.log('⏰ [SCHEDULER] Running daily task code dispatch...');
-    sendDailyTaskCodes();
-  });
-
-  // Schedule Final Claim Codes at Midnight
-  cron.schedule('0 0 * * *', () => {
-    console.log('⏰ [SCHEDULER] Running final claim code generation...');
+  // ✅ TESTING: Run every 20 seconds (Changed from */30)
+  cron.schedule('*/20 * * * * *', () => {
+    console.log('\n⏰ [SCHEDULER] Running 20-second check...');
     checkAndGenerateClaimCodes();
   });
   
-  console.log('✅ [SCHEDULER] Both generators started');
+  console.log('✅ Code generator scheduled - runs every 20 seconds (TESTING MODE)');
 };

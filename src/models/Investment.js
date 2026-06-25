@@ -63,6 +63,8 @@ const InvestmentSchema = new mongoose.Schema({
     type: Date, 
     default: Date.now 
   },
+  
+  // ✅ END DATES (Required for maturity check)
   expectedEndDate: { 
     type: Date, 
     required: true 
@@ -71,6 +73,8 @@ const InvestmentSchema = new mongoose.Schema({
     type: Date, 
     required: true 
   },
+  
+  // ✅ COMPLETION FLAG (For cron job to find investments)
   isComplete: { 
     type: Boolean, 
     default: false 
@@ -124,7 +128,7 @@ const InvestmentSchema = new mongoose.Schema({
   toObject: { virtuals: true } 
 });
 
-// Indexes
+// Indexes for better query performance
 InvestmentSchema.index({ user: 1, status: 1 });
 InvestmentSchema.index({ actualEndDate: 1, interestStatus: 1 });
 InvestmentSchema.index({ isComplete: 1, claimCode: 1 });

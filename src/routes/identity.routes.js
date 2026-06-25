@@ -19,7 +19,8 @@ import {
   getMyReferralCode,
   getReferralStats,
   handleGoogleSignIn,
-  checkEmailAvailability,  // ✅ ADD THIS IMPORT
+  checkEmailAvailability,
+  getCurrentUser,  // ✅ ADDED THIS IMPORT
 } from "../controllers/identity.controller.js";
 import { upload } from "../middlewares/upload.js";
 
@@ -41,6 +42,12 @@ router.post("/set-password", setPasswordNode);
 
 // ✅ NEW: Check Email Availability (MUST be before other routes)
 router.get("/check-email", checkEmailAvailability);
+
+// =====================================================
+// CURRENT USER ROUTE (NEWLY ADDED)
+// =====================================================
+// Note: This requires the user to be logged in (requires your auth middleware)
+router.get("/current-user", getCurrentUser);
 
 // =====================================================
 // PROFILE ROUTES
