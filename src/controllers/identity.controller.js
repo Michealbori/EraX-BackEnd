@@ -63,7 +63,7 @@ export const registerUserNode = async (req, res) => {
     console.log("\n" + "=".repeat(60));
     console.log("📝 [REGISTER] Starting registration process");
     console.log("Email:", email);
-    console.log("Referral Code:", referralCode || "None");
+    console.log("Referral Code from frontend:", referralCode);
     console.log("=".repeat(60));
 
     if (!email || !password) {
@@ -92,6 +92,7 @@ export const registerUserNode = async (req, res) => {
     console.log("\n🔐 Generated OTP:", otp);
     console.log("📅 OTP expires:", otpExpires);
 
+    // ✅ HANDLE REFERRAL CODE WITH DETAILED LOGGING
     let referredByData = null;
     
     if (referralCode && referralCode.trim()) {
@@ -101,20 +102,31 @@ export const registerUserNode = async (req, res) => {
       const referrer = await User.findOne({ referralCode: cleanReferralCode });
       
       if (referrer) {
+        // ✅ SAVE REFERRER INFO
         referredByData = {
           id: referrer._id,
           name: referrer.fullName || 'Unknown User',
           email: referrer.email
         };
-        console.log("✅ Referrer found! Saving details directly:", referredByData);
+        console.log("✅ Referrer found!");
+        console.log("   - Referrer ID:", referrer._id);
+        console.log("   - Referrer Name:", referrer.fullName);
+        console.log("   - Referrer Email:", referrer.email);
+        console.log("   - Saving to referredBy:", JSON.stringify(referredByData, null, 2));
       } else {
-        console.log("⚠️ Invalid referral code:", cleanReferralCode);
-        console.log("⚠️ No user found with this referral code in database");
+        console.log("⚠️ No user found with referral code:", cleanReferralCode);
+        console.log("⚠️ Checking available codes in DB...");
+        const sampleUsers = await User.find().select('referralCode email').limit(5);
+        console.log("   Available codes:");
+        sampleUsers.forEach(u => console.log("   -", u.referralCode, "->", u.email));
       }
     } else {
-      console.log("ℹ️ No referral code provided or empty");
+      console.log("ℹ️ No referral code provided or it's empty");
+      console.log("   - referralCode value:", referralCode);
+      console.log("   - referralCode type:", typeof referralCode);
     }
 
+    // Generate unique referral code for new user
     let userReferralCode = `ERAX-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).substr(2, 5).toUpperCase()}`;
     
     let referralCodeExists = await User.findOne({ referralCode: userReferralCode });
@@ -123,8 +135,9 @@ export const registerUserNode = async (req, res) => {
       referralCodeExists = await User.findOne({ referralCode: userReferralCode });
     }
 
-    console.log("🏷️ Generated referral code:", userReferralCode);
+    console.log("🏷️ Generated referral code for new user:", userReferralCode);
 
+    // ✅ CREATE USER WITH REFERRAL DATA
     const user = await User.create({
       email: email.toLowerCase().trim(),
       password: hashedPassword,
@@ -136,7 +149,7 @@ export const registerUserNode = async (req, res) => {
       otp: otp,
       otpExpires: otpExpires,
       authProvider: 'email',
-      referredBy: referredByData,
+      referredBy: referredByData, // ✅ This saves the referrer info
       referralCode: userReferralCode,
       balances: {
         availableLiquidity: 0,
@@ -150,13 +163,16 @@ export const registerUserNode = async (req, res) => {
       }
     });
 
-    console.log("✅ User created in database");
+    console.log("\n✅ User created in database");
     console.log("✅ User ID:", user._id);
-    console.log("✅ User referredBy saved as:", user.referredBy);
+    console.log("✅ User referredBy saved as:", JSON.stringify(user.referredBy, null, 2));
 
+    // ✅ INCREMENT REFERRER COUNT
     if (referredByData) {
       try {
         console.log("\n🔄 Attempting to increment referrer count...");
+        console.log("   - Referrer ID to update:", referredByData.id);
+        
         const updateResult = await User.findByIdAndUpdate(
           referredByData.id, 
           { $inc: { 'balances.referralCount': 1 } },
@@ -167,13 +183,13 @@ export const registerUserNode = async (req, res) => {
           console.log("✅ Referrer count incremented successfully");
           console.log("✅ New referral count:", updateResult.balances.referralCount);
         } else {
-          console.log("⚠️ Failed to update referrer count - updateResult is null");
+          console.log("⚠️ Failed to update referrer - updateResult is null");
         }
       } catch (updateError) {
         console.error("❌ Error incrementing referrer count:", updateError);
       }
     } else {
-      console.log("ℹ️ No referrer to increment");
+      console.log("ℹ️ No referrer to increment (user didn't use a referral code)");
     }
 
     console.log("✅ OTP saved to database:", user.otp);
@@ -528,7 +544,7 @@ export const resendOtpToken = async (req, res) => {
 };
 
 // =====================================================
-// PROFILE FUNCTIONS (FIXED TO INCLUDE 2FA & LOGIN DATA)
+// PROFILE FUNCTIONS
 // =====================================================
 
 export const getProfileNode = async (req, res) => {
@@ -1044,7 +1060,7 @@ export const getDashboardMetrics = async (req, res) => {
 };
 
 // =====================================================
-// REFERRAL FUNCTIONS (SIMPLIFIED!)
+// REFERRAL FUNCTIONS
 // =====================================================
 
 export const validateReferralCodeEndpoint = async (req, res) => {
@@ -1127,6 +1143,7 @@ export const getMyReferralCode = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Now fetches and returns the actual list of referred users
 export const getReferralStats = async (req, res) => {
   try {
     const { email } = req.params;
@@ -1139,9 +1156,16 @@ export const getReferralStats = async (req, res) => {
       return res.status(404).json({ success: false, message: "User not found" });
     }
 
-    const referralCount = user.balances?.referralCount || await User.countDocuments({ "referredBy.id": user._id });
+    // ✅ Fetch actual list of users who were referred by this user
+    const referredUsers = await User.find({ "referredBy.id": user._id })
+      .select('fullName email createdAt')
+      .sort({ createdAt: -1 })
+      .limit(10); // Get last 10 referrals
+
+    const referralCount = user.balances?.referralCount || referredUsers.length;
 
     console.log("✅ Total referrals:", referralCount);
+    console.log("✅ Found", referredUsers.length, "referred users");
 
     let earnings = user.balances?.referralEarnings || 0;
     
@@ -1153,13 +1177,27 @@ export const getReferralStats = async (req, res) => {
 
     console.log("✅ Calculated earnings:", earnings);
 
+    // ✅ Format the referrals list for frontend
+    const referralsList = referredUsers.map(ref => ({
+      id: ref._id,
+      name: ref.fullName || ref.email.split('@')[0],
+      email: ref.email,
+      date: new Date(ref.createdAt).toLocaleDateString('en-US', { 
+        month: 'short', 
+        day: 'numeric', 
+        year: 'numeric' 
+      }),
+      earned: 0 // You can calculate individual earnings per referral if needed
+    }));
+
     res.status(200).json({
       success: true,
       stats: {
         totalReferrals: referralCount,
         referralCode: user.referralCode || null,
         earnings: parseFloat(earnings.toFixed(2))
-      }
+      },
+      referrals: referralsList // ✅ NEW: Send the actual list
     });
 
   } catch (error) {
@@ -1169,7 +1207,7 @@ export const getReferralStats = async (req, res) => {
 };
 
 // =====================================================
-// INVESTMENT FUNCTIONS (UPDATED WITH 20-SECOND TEST MODE)
+// INVESTMENT FUNCTIONS
 // =====================================================
 
 export const createInvestment = async (req, res) => {
@@ -1205,16 +1243,13 @@ export const createInvestment = async (req, res) => {
 
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) - amountNum;
     
-    // ==========================================
-    // ⚠️ TIMER LOGIC (Starts counting immediately)
-    // ==========================================
-    const TESTING_MODE = true; // ⚠️ Set to FALSE for production (24 hours)
+    const TESTING_MODE = true;
     
     const maturityDate = new Date();
     if (TESTING_MODE) {
-      maturityDate.setSeconds(maturityDate.getSeconds() + 20); // 20 seconds for testing
+      maturityDate.setSeconds(maturityDate.getSeconds() + 20);
     } else {
-      maturityDate.setHours(maturityDate.getHours() + 24);    // 24 hours for production
+      maturityDate.setHours(maturityDate.getHours() + 24);
     }
 
     const interestAmount = amountNum;
@@ -1229,11 +1264,8 @@ export const createInvestment = async (req, res) => {
       amount: amountNum,
       interestAmount: interestAmount,
       maturityDate: maturityDate,
-      
-      // ✅ CRITICAL FIX: Added these fields so the codeGenerator cron job can find them!
       actualEndDate: maturityDate, 
       isComplete: true, 
-      
       interestStatus: 'pending',
       status: 'active',
       transactionId: transactionId
@@ -1568,7 +1600,7 @@ export const earlyWithdrawal = async (req, res) => {
 };
 
 // =====================================================
-// GET LOGGED-IN USER DATA (FIXED TO INCLUDE 2FA & LOGIN DATA)
+// GET LOGGED-IN USER DATA
 // =====================================================
 
 export const getCurrentUser = async (req, res) => {

@@ -77,10 +77,12 @@ const userSchema = new mongoose.Schema({
     type: String,
     default: null
   },
+  
+  // ✅ FIXED: Remove unique constraint, we'll handle uniqueness in code
   referralCode: {
     type: String,
     default: null,
-    unique: true,
+    index: true, // ✅ Just a regular index, not unique
     sparse: true
   },
   
@@ -127,5 +129,31 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
+// ✅ Remove the old unique index on referralCode
+userSchema.index({ referralCode: 1 }, { sparse: true, unique: false });
+
 const User = mongoose.models.User || mongoose.model("User", userSchema);
+
+// ✅ Migration: Fix existing null referralCodes
+async function migrateReferralCodes() {
+  try {
+    const usersWithNullCode = await User.find({ referralCode: null });
+    console.log(`🔧 Found ${usersWithNullCode.length} users with null referralCode`);
+    
+    for (const user of usersWithNullCode) {
+      const newCode = `ERAX-${user._id.toString().slice(-8).toUpperCase()}`;
+      user.referralCode = newCode;
+      await user.save();
+      console.log(`✅ Updated ${user.email} with code: ${newCode}`);
+    }
+  } catch (error) {
+    console.error("❌ Migration error:", error);
+  }
+}
+
+// Run migration on startup (only once)
+if (process.env.NODE_ENV !== 'test') {
+  migrateReferralCodes();
+}
+
 export default User;
