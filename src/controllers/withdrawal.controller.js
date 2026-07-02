@@ -3,15 +3,36 @@ import User from "../models/User.js";
 import Investment from "../models/Investment.js";
 import { sendWithdrawalRequestEmail } from "../services/email.service.js";
 
-// POST /api/withdrawal/request
+const getSecureUser = async (req, res) => {
+  if (req.user?.id) {
+    const user = await User.findById(req.user.id);
+    if (user) return user;
+  }
+  return null;
+};
+
+// ==========================================
+// POST /api/withdrawal/request - UPDATED: Can withdraw all availableLiquidity
+// ==========================================
 export const requestWithdrawal = async (req, res) => {
   try {
-    const { email, amount, accountNumber, bankName, accountName } = req.body;
+    const user = await getSecureUser(req, res);
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Authentication required" 
+      });
+    }
 
-    console.log("💸 [WITHDRAWAL REQUEST]", { email, amount });
+    const { amount, accountNumber, bankName, accountName } = req.body;
 
-    // Validation
-    if (!email || !amount || !accountNumber || !bankName || !accountName) {
+    console.log("💸 [WITHDRAWAL REQUEST]", { 
+      email: user.email, 
+      amount 
+    });
+
+    if (!amount || !accountNumber || !bankName || !accountName) {
       return res.status(400).json({
         success: false,
         message: "All fields are required"
@@ -26,15 +47,10 @@ export const requestWithdrawal = async (req, res) => {
       });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
-    }
-
     // ✅ Check eligibility: Must have at least one investment that's at least 1 month old
     const oldestInvestment = await Investment.findOne({
       user: user._id,
-      status: { $in: ['active', 'claimed'] }
+      status: { $in: ['active', 'auto_renewed', 'claimed'] }
     }).sort({ investedAt: 1 });
 
     if (!oldestInvestment) {
@@ -52,26 +68,23 @@ export const requestWithdrawal = async (req, res) => {
       const daysRemaining = 30 - daysSinceFirstInvestment;
       return res.status(403).json({
         success: false,
-        message: `You can withdraw after ${daysRemaining} more days. First investment was made ${daysSinceFirstInvestment} days ago.`,
+        message: `You can withdraw after ${daysRemaining} more days.`,
         daysRemaining: daysRemaining,
         daysSinceFirstInvestment: daysSinceFirstInvestment
       });
     }
 
-    // ✅ Check 50% limit
+    // ✅ UPDATED: Can withdraw up to 100% of availableLiquidity (all profit)
     const availableBalance = user.balances?.availableLiquidity || 0;
-    const maxWithdrawal = availableBalance * 0.5;
 
-    if (amountNum > maxWithdrawal) {
+    if (amountNum > availableBalance) {
       return res.status(400).json({
         success: false,
-        message: `You can only withdraw up to 50% of your balance. Maximum: $${maxWithdrawal.toFixed(2)}`,
-        maxWithdrawal: maxWithdrawal.toFixed(2),
+        message: `Insufficient balance. Available: $${availableBalance.toFixed(2)}`,
         availableBalance: availableBalance.toFixed(2)
       });
     }
 
-    // Check if user has pending withdrawal
     const pendingWithdrawal = await Withdrawal.findOne({
       user: user._id,
       status: { $in: ['pending', 'processing'] }
@@ -84,14 +97,11 @@ export const requestWithdrawal = async (req, res) => {
       });
     }
 
-    // Calculate countdown end time (20 minutes from now)
     const countdownEndsAt = new Date();
     countdownEndsAt.setMinutes(countdownEndsAt.getMinutes() + 20);
 
-    // Generate transaction ID
     const transactionId = `WD-${Date.now()}-${Math.random().toString(36).substr(2, 9).toUpperCase()}`;
 
-    // Create withdrawal request
     const withdrawal = await Withdrawal.create({
       user: user._id,
       email: user.email,
@@ -104,7 +114,6 @@ export const requestWithdrawal = async (req, res) => {
       transactionId: transactionId
     });
 
-    // ✅ Send email to admin
     try {
       await sendWithdrawalRequestEmail({
         userEmail: user.email,
@@ -119,7 +128,6 @@ export const requestWithdrawal = async (req, res) => {
       console.log("✅ Admin notification email sent");
     } catch (emailError) {
       console.error("❌ Failed to send admin email:", emailError);
-      // Don't fail the request if email fails
     }
 
     console.log(`✅ Withdrawal request created: $${amountNum}`);
@@ -147,19 +155,28 @@ export const requestWithdrawal = async (req, res) => {
   }
 };
 
+// ==========================================
 // GET /api/withdrawal/status/:id
+// ==========================================
 export const getWithdrawalStatus = async (req, res) => {
   try {
+    const user = await getSecureUser(req, res);
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: "Authentication required" 
+      });
+    }
+
     const { id } = req.params;
-    const { email } = req.query;
 
     const withdrawal = await Withdrawal.findById(id);
     if (!withdrawal) {
       return res.status(404).json({ success: false, message: "Withdrawal not found" });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
-    if (!user || withdrawal.user.toString() !== user._id.toString()) {
+    if (withdrawal.user.toString() !== user._id.toString()) {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
@@ -185,14 +202,18 @@ export const getWithdrawalStatus = async (req, res) => {
   }
 };
 
-// GET /api/withdrawal/history/:email
+// ==========================================
+// GET /api/withdrawal/history
+// ==========================================
 export const getWithdrawalHistory = async (req, res) => {
   try {
-    const { email } = req.params;
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const user = await getSecureUser(req, res);
+    
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(401).json({ 
+        success: false, 
+        message: "Authentication required" 
+      });
     }
 
     const withdrawals = await Withdrawal.find({ user: user._id })
@@ -207,7 +228,7 @@ export const getWithdrawalHistory = async (req, res) => {
       requestedAt: w.requestedAt,
       completedAt: w.completedAt,
       bankName: w.bankName,
-      accountNumber: w.accountNumber.substring(0, 4) + '****' // Mask for security
+      accountNumber: w.accountNumber.substring(0, 4) + '****'
     }));
 
     res.status(200).json({
@@ -221,23 +242,26 @@ export const getWithdrawalHistory = async (req, res) => {
   }
 };
 
-// GET /api/withdrawal/check-eligibility/:email
+// ==========================================
+// GET /api/withdrawal/check-eligibility
+// ==========================================
 export const checkEligibility = async (req, res) => {
   try {
-    const { email } = req.params;
-
-    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    const user = await getSecureUser(req, res);
+    
     if (!user) {
-      return res.status(404).json({ success: false, message: "User not found" });
+      return res.status(401).json({ 
+        success: false, 
+        message: "Authentication required" 
+      });
     }
 
     const oldestInvestment = await Investment.findOne({
       user: user._id,
-      status: { $in: ['active', 'claimed'] }
+      status: { $in: ['active', 'auto_renewed', 'claimed'] }
     }).sort({ investedAt: 1 });
 
     const availableBalance = user.balances?.availableLiquidity || 0;
-    const maxWithdrawal = availableBalance * 0.5;
 
     if (!oldestInvestment) {
       return res.status(200).json({
@@ -246,7 +270,7 @@ export const checkEligibility = async (req, res) => {
         reason: "no_investment",
         message: "You must make at least one investment before withdrawing",
         availableBalance: availableBalance.toFixed(2),
-        maxWithdrawal: maxWithdrawal.toFixed(2)
+        lockedInvestment: (user.balances?.lockedInvestment || 0).toFixed(2)
       });
     }
 
@@ -264,7 +288,7 @@ export const checkEligibility = async (req, res) => {
         daysRemaining: daysRemaining,
         daysSinceFirstInvestment: daysSinceFirstInvestment,
         availableBalance: availableBalance.toFixed(2),
-        maxWithdrawal: maxWithdrawal.toFixed(2)
+        lockedInvestment: (user.balances?.lockedInvestment || 0).toFixed(2)
       });
     }
 
@@ -274,7 +298,8 @@ export const checkEligibility = async (req, res) => {
       message: "You are eligible to withdraw",
       daysSinceFirstInvestment: daysSinceFirstInvestment,
       availableBalance: availableBalance.toFixed(2),
-      maxWithdrawal: maxWithdrawal.toFixed(2)
+      lockedInvestment: (user.balances?.lockedInvestment || 0).toFixed(2),
+      maxWithdrawal: availableBalance.toFixed(2) // ✅ Can withdraw all available
     });
 
   } catch (error) {

@@ -13,14 +13,11 @@ export async function checkSecurityClearance(req, res, next) {
     });
   }
 
-  // Extract token string payload
   const token = authHeader.split('Bearer ')[1];
 
   try {
-    // Exchange credentials with firebase admin console rules
     const decodedToken = await admin.auth().verifyIdToken(token);
     
-    // Bind authenticated identity mapping array parameters directly to request stream
     req.user = {
       uid: decodedToken.uid,
       email: decodedToken.email
@@ -36,7 +33,7 @@ export async function checkSecurityClearance(req, res, next) {
   }
 }
 
-// ✅ JWT Protect Middleware (for API routes)
+// ✅ JWT Protect Middleware (for API routes) - ✅ ENHANCED WITH LOGGING
 export const protect = async (req, res, next) => {
   try {
     let token;
@@ -46,8 +43,12 @@ export const protect = async (req, res, next) => {
       token = req.headers.authorization.split(" ")[1];
     }
 
+    console.log('🔐 [PROTECT] Route:', req.originalUrl);
+    console.log('🔐 [PROTECT] Token exists:', !!token);
+
     // Check if token exists
     if (!token) {
+      console.error('❌ [PROTECT] No token provided');
       return res.status(401).json({
         success: false,
         message: "Not authorized to access this route. Please login."
@@ -57,20 +58,24 @@ export const protect = async (req, res, next) => {
     try {
       // Verify token
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      console.log('✅ [PROTECT] Token decoded. User ID:', decoded.id);
 
       // Get user from token
       req.user = await User.findById(decoded.id).select("-password");
 
       if (!req.user) {
+        console.error('❌ [PROTECT] User not found in database for ID:', decoded.id);
         return res.status(401).json({
           success: false,
           message: "User not found. Token invalid."
         });
       }
 
+      console.log('✅ [PROTECT] User authenticated:', req.user.email);
       next();
 
     } catch (error) {
+      console.error('❌ [PROTECT] Token verification failed:', error.message);
       return res.status(401).json({
         success: false,
         message: "Invalid or expired token. Please login again."
@@ -78,7 +83,7 @@ export const protect = async (req, res, next) => {
     }
 
   } catch (error) {
-    console.error("❌ PROTECT MIDDLEWARE ERROR:", error);
+    console.error("❌ [PROTECT] MIDDLEWARE ERROR:", error);
     return res.status(500).json({
       success: false,
       message: "Server error in authentication"
@@ -163,4 +168,3 @@ export const logAdminAction = (action, targetType) => {
     next();
   };
 };
-

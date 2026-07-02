@@ -31,7 +31,6 @@ const InvestmentSchema = new mongoose.Schema({
     min: [50, "Minimum investment is $50"] 
   },
 
-  // ✅ INTEREST = 100% OF AMOUNT (MONEY DOUBLES)
   interestAmount: { 
     type: Number, 
     required: true 
@@ -42,7 +41,6 @@ const InvestmentSchema = new mongoose.Schema({
     default: Date.now 
   },
 
-  // ✅ 30-DAY TASK SYSTEM
   totalDays: { 
     type: Number, 
     default: 30 
@@ -51,20 +49,11 @@ const InvestmentSchema = new mongoose.Schema({
     type: Number, 
     default: 0 
   },
-  missedDays: { 
-    type: Number, 
-    default: 0 
-  },
-  extensionDays: { 
-    type: Number, 
-    default: 0 
-  },
   startDate: { 
     type: Date, 
     default: Date.now 
   },
   
-  // ✅ END DATES (Required for maturity check)
   expectedEndDate: { 
     type: Date, 
     required: true 
@@ -74,13 +63,6 @@ const InvestmentSchema = new mongoose.Schema({
     required: true 
   },
   
-  // ✅ COMPLETION FLAG (For cron job to find investments)
-  isComplete: { 
-    type: Boolean, 
-    default: false 
-  },
-
-  // ✅ DAILY TASK RECORDS
   dailyTasks: [{
     dayNumber: Number,
     date: Date,
@@ -89,7 +71,11 @@ const InvestmentSchema = new mongoose.Schema({
     taskCode: String
   }],
 
-  // ✅ CLAIM CODE SYSTEM
+  lastCheckInDate: { 
+    type: Date, 
+    default: null 
+  },
+
   claimCode: { 
     type: String, 
     sparse: true, 
@@ -101,17 +87,13 @@ const InvestmentSchema = new mongoose.Schema({
 
   interestStatus: {
     type: String,
-    enum: ["pending", "code_generated", "claimed", "early_withdrawn"],
+    enum: ["pending", "code_generated", "claimed"],
     default: "pending"
   },
   
-  earlyWithdrawalRequestedAt: { type: Date, default: null },
-  earlyWithdrawalPenalty: { type: Number, default: 0 },
-  earlyWithdrawalPayout: { type: Number, default: 0 },
-  
   status: { 
     type: String, 
-    enum: ["active", "completed", "claimed", "cancelled", "early_withdrawn"], 
+    enum: ["active", "completed", "claimed", "cancelled", "auto_renewed"], 
     default: "active", 
     index: true 
   },
@@ -120,6 +102,30 @@ const InvestmentSchema = new mongoose.Schema({
     type: String, 
     unique: true, 
     sparse: true 
+  },
+
+  // ✅ NEW: Perpetual Investment Tracking
+  cycleNumber: {
+    type: Number,
+    default: 1,
+    required: true
+  },
+  
+  parentInvestment: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: "Investment",
+    default: null
+  },
+  
+  isAutoRenewed: {
+    type: Boolean,
+    default: false
+  },
+  
+  // Track profit paid out in this cycle
+  profitPaidOut: {
+    type: Number,
+    default: 0
   }
 
 }, { 
@@ -128,9 +134,10 @@ const InvestmentSchema = new mongoose.Schema({
   toObject: { virtuals: true } 
 });
 
-// Indexes for better query performance
 InvestmentSchema.index({ user: 1, status: 1 });
 InvestmentSchema.index({ actualEndDate: 1, interestStatus: 1 });
-InvestmentSchema.index({ isComplete: 1, claimCode: 1 });
+InvestmentSchema.index({ claimCode: 1 });
+InvestmentSchema.index({ completedDays: 1 });
+InvestmentSchema.index({ cycleNumber: 1 });
 
 export default mongoose.model("Investment", InvestmentSchema);

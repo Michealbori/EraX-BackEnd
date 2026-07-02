@@ -296,7 +296,173 @@ export const sendWithdrawalRequestEmail = async ({ userEmail, userName, amount, 
   }
 };
 
+/**
+ * ✅ NEW: Send Deposit Confirmation & Investment Started Email
+ */
+export const sendDepositConfirmationEmail = async ({
+  userEmail,
+  userName,
+  depositAmount,
+  investmentAmount,
+  transactionId,
+  investmentId,
+  expectedReturn,
+  maturityDate,
+  completedAt
+}) => {
+  console.log('\n🎉 ===== SENDING DEPOSIT & INVESTMENT CONFIRMATION =====');
+  console.log('To User:', userEmail);
+  console.log('Deposit Amount:', depositAmount);
+  console.log('Investment Amount:', investmentAmount);
+  
+  const currentTransporter = getTransporter();
+  
+  const subject = "🎉 Deposit Confirmed & Investment Started!";
+  
+  const mailOptions = {
+    from: `"eraX Investments" <${process.env.EMAIL_USER}>`,
+    to: userEmail,
+    subject: subject,
+    text: `Hi ${userName},\n\nYour deposit of $${depositAmount.toFixed(2)} has been confirmed and automatically converted into an investment!\n\nInvestment Amount: $${investmentAmount.toFixed(2)}\nExpected Return: $${expectedReturn.toFixed(2)}\nMaturity Date: ${new Date(maturityDate).toLocaleDateString()}\n\nYou'll receive daily check-in codes via email. Complete 30 days to double your money!\n\n© ${new Date().getFullYear()} eraX`,
+    html: `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Deposit & Investment Confirmation</title>
+      </head>
+      <body style="margin: 0; padding: 0; background-color: #0b1120; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; color: #ffffff;">
+        <table role="presentation" cellpadding="0" cellspacing="0" width="100%" style="background-color: #0b1120; padding: 40px 20px;">
+          <tr>
+            <td align="center">
+              <table role="presentation" cellpadding="0" cellspacing="0" width="600" style="max-width: 600px; background: #1a2236; border: 1px solid #1e293b; border-radius: 16px; overflow: hidden;">
+                
+                <!-- Header -->
+                <tr>
+                  <td style="background: linear-gradient(135deg, #f3ba2f, #d99e2b); padding: 30px; text-align: center;">
+                    <h1 style="margin: 0; color: #0b1120; font-size: 28px; font-weight: 800;">
+                      era<span style="color: #ffffff;">X</span>
+                    </h1>
+                    <p style="margin: 10px 0 0 0; color: #0b1120; font-size: 16px;">Deposit Confirmed & Investment Started!</p>
+                  </td>
+                </tr>
+                
+                <!-- Content -->
+                <tr>
+                  <td style="padding: 40px;">
+                    
+                    <!-- Success Badge -->
+                    <div style="background-color: rgba(34, 197, 94, 0.2); color: #22c55e; padding: 8px 16px; border-radius: 20px; display: inline-block; margin-bottom: 20px; font-size: 14px; font-weight: 600;">
+                      ✅ Transaction Successful
+                    </div>
+                    
+                    <!-- Greeting -->
+                    <h2 style="margin: 0 0 16px 0; color: #ffffff; font-size: 24px;">Hi ${userName},</h2>
+                    <p style="color: #94a3b8; font-size: 15px; line-height: 24px; margin: 0 0 24px 0;">
+                      Your deposit has been confirmed and automatically converted into an investment!
+                    </p>
+                    
+                    <!-- Amount Box -->
+                    <div style="background: rgba(243, 186, 47, 0.1); border: 2px solid #f3ba2f; padding: 24px; border-radius: 12px; margin: 0 0 32px 0; text-align: center;">
+                      <div style="color: #94a3b8; font-size: 14px; margin-bottom: 8px;">Investment Amount</div>
+                      <div style="font-size: 36px; font-weight: bold; color: #f3ba2f; margin-bottom: 12px;">$${investmentAmount.toFixed(2)}</div>
+                      <div style="color: #94a3b8; font-size: 14px;">
+                        Expected Return: <span style="color: #22c55e; font-weight: bold;">$${expectedReturn.toFixed(2)}</span>
+                      </div>
+                    </div>
+                    
+                    <!-- Investment Details -->
+                    <h3 style="color: #f3ba2f; margin: 0 0 16px 0; font-size: 18px;">📊 Investment Details</h3>
+                    
+                    <div style="background: #0b1120; border: 1px solid #1e293b; border-radius: 8px; padding: 16px; margin-bottom: 24px;">
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8;">Transaction ID:</span>
+                        <span style="color: #ffffff; font-weight: 600;">${transactionId}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8;">Investment ID:</span>
+                        <span style="color: #ffffff; font-weight: 600;">${investmentId}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8;">Start Date:</span>
+                        <span style="color: #ffffff; font-weight: 600;">${new Date(completedAt).toLocaleDateString()}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8;">Maturity Date:</span>
+                        <span style="color: #ffffff; font-weight: 600;">${new Date(maturityDate).toLocaleDateString()}</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid rgba(255,255,255,0.05);">
+                        <span style="color: #94a3b8;">Duration:</span>
+                        <span style="color: #ffffff; font-weight: 600;">30 Days</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; padding: 12px 0;">
+                        <span style="color: #94a3b8;">ROI:</span>
+                        <span style="color: #22c55e; font-weight: bold;">100% (Double Your Money)</span>
+                      </div>
+                    </div>
+                    
+                    <!-- Daily Check-In Info -->
+                    <div style="background: rgba(59, 130, 246, 0.1); border-left: 4px solid #3b82f6; padding: 16px; margin: 0 0 24px 0; border-radius: 6px;">
+                      <h4 style="margin: 0 0 10px 0; color: #60a5fa; font-size: 16px;">📧 Daily Check-In Codes</h4>
+                      <p style="margin: 0; color: #94a3b8; font-size: 14px; line-height: 22px;">
+                        You'll receive a unique 8-character code via email every day. Enter it in your dashboard to track your progress and complete your 30-day challenge!
+                      </p>
+                    </div>
+                    
+                    <!-- CTA Button -->
+                    <div style="text-align: center; margin: 32px 0 0 0;">
+                      <a href="${process.env.FRONTEND_URL || 'https://erax.company'}/investments" 
+                         style="background: linear-gradient(135deg, #f3ba2f, #d99e2b); color: #0b1120; padding: 14px 32px; text-decoration: none; border-radius: 8px; font-weight: bold; display: inline-block; font-size: 15px;">
+                        View My Investment →
+                      </a>
+                    </div>
+                    
+                  </td>
+                </tr>
+                
+                <!-- Footer -->
+                <tr>
+                  <td style="padding: 24px 40px; border-top: 1px solid #1e293b; text-align: center;">
+                    <p style="font-size: 12px; color: #64748b; margin: 0;">
+                      © ${new Date().getFullYear()} EraX. All rights reserved.
+                    </p>
+                    <p style="font-size: 11px; color: #475569; margin: 8px 0 0 0;">
+                      This is an automated message. Please do not reply.
+                    </p>
+                  </td>
+                </tr>
+                
+              </table>
+            </td>
+          </tr>
+        </table>
+      </body>
+      </html>
+    `
+  };
+
+  try {
+    console.log('📤 Sending deposit confirmation email...');
+    const info = await currentTransporter.sendMail(mailOptions);
+    
+    console.log('✅ DEPOSIT CONFIRMATION EMAIL SENT!');
+    console.log('Message ID:', info.messageId);
+    console.log('='.repeat(70) + '\n');
+    
+    return info;
+  } catch (error) {
+    console.error('❌ FAILED TO SEND DEPOSIT CONFIRMATION EMAIL');
+    console.error('Error:', error.message);
+    console.error('Code:', error.code);
+    console.error('Full Error:', error);
+    console.log('='.repeat(70) + '\n');
+    throw error;
+  }
+};
+
 export default {
   sendOtpEmail,
-  sendWithdrawalRequestEmail
+  sendWithdrawalRequestEmail,
+  sendDepositConfirmationEmail
 };

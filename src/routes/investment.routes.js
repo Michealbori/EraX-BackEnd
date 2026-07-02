@@ -2,28 +2,26 @@ import express from 'express';
 import { 
   createInvestment,
   getUserInvestments,
-  completeDailyTask,
-  claimInterestWithCode,
-  getClaimCode,
-  earlyWithdrawal
+  verifyDailyCheckIn,
+  getClaimCode
 } from '../controllers/investment.controller.js';
+
+import { protect } from '../middlewares/auth.middleware.js'; // ✅ Import JWT middleware
 
 const router = express.Router();
 
-// ✅ CREATE INVESTMENT
-router.post('/create', createInvestment);
+// ✅ CREATE INVESTMENT - Requires JWT authentication
+router.post('/create', protect, createInvestment);
 
-// ✅ GET INVESTMENTS FOR USER
-router.get('/user/:email', getUserInvestments);
+// ✅ GET INVESTMENTS FOR USER - Requires JWT authentication (no email param needed)
+router.get('/user-investments', protect, getUserInvestments);
 
-// ✅ DAILY TASK ROUTES
-router.post('/complete-daily-task/:investmentId', completeDailyTask);
+// ✅ DAILY CHECK-IN - Requires JWT authentication
+router.post('/check-in/:investmentId', protect, verifyDailyCheckIn);
 
-// ✅ CLAIM INTEREST WITH CODE
-router.post('/claim-with-code', claimInterestWithCode);
-router.get('/claim-code/:investmentId', getClaimCode);
+// ✅ CLAIM CODE - Requires JWT authentication
+router.get('/claim-code/:investmentId', protect, getClaimCode);
 
-// ✅ EARLY WITHDRAWAL
-router.post('/early-withdrawal/:id', earlyWithdrawal);
+// ❌ EARLY WITHDRAWAL REMOVED - Users must complete all 30 days
 
 export default router;

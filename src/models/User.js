@@ -78,15 +78,13 @@ const userSchema = new mongoose.Schema({
     default: null
   },
   
-  // ✅ FIXED: Remove unique constraint, we'll handle uniqueness in code
   referralCode: {
     type: String,
     default: null,
-    index: true, // ✅ Just a regular index, not unique
+    index: true,
     sparse: true
   },
   
-  // ✅ UPDATED: referredBy is now an OBJECT that stores ID, Name, and Email directly
   referredBy: {
     id: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
     name: { type: String, default: '' },
@@ -98,9 +96,13 @@ const userSchema = new mongoose.Schema({
     default: false
   },
   
-  // ✅ BALANCES
+  // ✅ BALANCES - UPDATED WITH LOCKED INVESTMENT
   balances: {
     availableLiquidity: { type: Number, default: 0 },
+    
+    // ✅ NEW: Track locked principal that can never be withdrawn
+    lockedInvestment: { type: Number, default: 0 },
+    
     totalDeposited: { type: Number, default: 0 },
     totalWithdrawn: { type: Number, default: 0 },
     netProfitLoss: { type: Number, default: 0 },
@@ -111,12 +113,10 @@ const userSchema = new mongoose.Schema({
       bonds: { type: Number, default: 0 },
       commodities: { type: Number, default: 0 }
     },
-    // ✅ Secure referral tracking fields
     referralCount: { type: Number, default: 0 },
     referralEarnings: { type: Number, default: 0 }
   },
   
-  // ✅ TIMESTAMPS
   lastLoginAt: {
     type: Date,
     default: null
@@ -129,12 +129,10 @@ const userSchema = new mongoose.Schema({
   timestamps: true
 });
 
-// ✅ Remove the old unique index on referralCode
 userSchema.index({ referralCode: 1 }, { sparse: true, unique: false });
 
 const User = mongoose.models.User || mongoose.model("User", userSchema);
 
-// ✅ Migration: Fix existing null referralCodes
 async function migrateReferralCodes() {
   try {
     const usersWithNullCode = await User.find({ referralCode: null });
@@ -151,7 +149,6 @@ async function migrateReferralCodes() {
   }
 }
 
-// Run migration on startup (only once)
 if (process.env.NODE_ENV !== 'test') {
   migrateReferralCodes();
 }

@@ -5,19 +5,22 @@ import {
   getWithdrawalHistory,
   checkEligibility
 } from "../controllers/withdrawal.controller.js";
+import { protect } from "../middlewares/auth.middleware.js"; // ✅ Import JWT middleware
 
 const router = express.Router();
 
+// ✅ All routes require JWT authentication
+
 // Check withdrawal eligibility
-router.get("/check-eligibility/:email", checkEligibility);
+router.get("/check-eligibility", protect, checkEligibility);
 
 // Request withdrawal
-router.post("/request", requestWithdrawal);
+router.post("/request", protect, requestWithdrawal);
 
 // Get withdrawal status (for countdown)
-router.get("/status/:id", getWithdrawalStatus);
+router.get("/status/:id", protect, getWithdrawalStatus);
 
 // Get withdrawal history
-router.get("/history/:email", getWithdrawalHistory);
+router.get("/history", protect, getWithdrawalHistory);
 
 export default router;

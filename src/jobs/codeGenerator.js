@@ -1,53 +1,46 @@
 import cron from 'node-cron';
+import crypto from 'crypto';
 import Investment from '../models/Investment.js';
 import User from '../models/User.js';
 import { sendOTPEmail } from '../config/email.js';
 
-/**
- * Generate unique 8-character claim code
- */
+// ==========================================
+// Helper: Generate secure unique 8-character code
+// ==========================================
 const generateClaimCode = () => {
-  const characters = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code = '';
-  for (let i = 0; i < 8; i++) {
-    const randomIndex = Math.floor(Math.random() * characters.length);
-    code += characters[randomIndex];
-  }
-  return code;
+  return crypto.randomBytes(4).toString('hex').toUpperCase().slice(0, 8);
 };
 
-/**
- * Check for completed investments and generate claim codes
- * TESTING MODE: Runs every 20 seconds
- */
+// ==========================================
+// Check for active investments and generate daily codes
+// ==========================================
 export const checkAndGenerateClaimCodes = async () => {
   try {
-    console.log('\n🔍 [CODE GENERATOR] Checking for completed investments...');
+    console.log('\n🔍 [CODE GENERATOR] Checking for investments needing today\'s code...');
     console.log('⏰ Current time:', new Date().toLocaleTimeString());
     
     const now = new Date();
+    const todayStart = new Date(now.setHours(0, 0, 0, 0));
     
-    // Find investments that are complete but don't have a claim code yet
-    const completedInvestments = await Investment.find({
-      isComplete: true,
-      interestStatus: 'pending',
-      claimCode: { $exists: false }
+    // ✅ Find investments that need a code for TODAY
+    // They must be active, not completed (completedDays < 30), and either:
+    // - Never had a code generated (claimCode is null/undefined)
+    // - Had a code generated on a previous day (codeGeneratedAt < todayStart)
+    const investmentsNeedingCode = await Investment.find({
+      status: 'active',
+      completedDays: { $lt: 30 }, // Not completed yet
+      $or: [
+        { claimCode: null }, // Never generated
+        { claimCode: { $exists: false } }, // Field doesn't exist
+        { codeGeneratedAt: { $lt: todayStart } } // Last generated on a previous day
+      ]
     }).populate('user');
 
-    console.log(`📊 Found ${completedInvestments.length} completed investments`);
+    console.log(`📊 Found ${investmentsNeedingCode.length} investments needing today's code`);
 
-    for (const investment of completedInvestments) {
+    for (const investment of investmentsNeedingCode) {
       try {
-        // ⚠️ TESTING MODE: Temporarily bypassing the 24-hour maturity check so it generates immediately!
-        // REMEMBER TO UNCOMMENT THIS BLOCK BEFORE GOING TO PRODUCTION!
-        /*
-        if (investment.actualEndDate > now) {
-          console.log(`⏳ Investment ${investment._id} not ready yet. Wait until: ${investment.actualEndDate.toLocaleTimeString()}`);
-          continue;
-        }
-        */
-
-        // Generate unique claim code
+        // Generate unique 8-character code
         let claimCode;
         let isUnique = false;
         
@@ -57,26 +50,21 @@ export const checkAndGenerateClaimCodes = async () => {
           isUnique = !existing;
         }
 
-        // Update investment with claim code
+        // ✅ Update investment with today's code
         investment.claimCode = claimCode;
         investment.codeGeneratedAt = now;
-        investment.codeExpiresAt = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000); // 7 days expiry
+        investment.codeExpiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000); // 24 hours expiry
         investment.interestStatus = 'code_generated';
         
         await investment.save();
 
-        console.log(`✅ Generated code ${claimCode} for investment ${investment._id}`);
+        console.log(`✅ Generated Day ${investment.completedDays + 1} code: ${claimCode} for investment ${investment._id}`);
 
-        // Send email to user
-        try {
-          const user = investment.user;
-          if (user && user.email) {
-            // Sends the claim code via your existing email function
-            await sendOTPEmail(user.email, claimCode, 'claim_code'); 
-            console.log(`📧 Sent code to ${user.email}`);
-          }
-        } catch (emailError) {
-          console.error(`❌ Email failed:`, emailError.message);
+        // ✅ Send email to user
+        const user = investment.user;
+        if (user && user.email) {
+          await sendOTPEmail(user.email, claimCode, 'claim_code');
+          console.log(`📧 Sent Day ${investment.completedDays + 1} code to ${user.email}`);
         }
 
       } catch (error) {
@@ -91,22 +79,25 @@ export const checkAndGenerateClaimCodes = async () => {
   }
 };
 
-/**
- * Schedule the code generator
- * TESTING MODE: Runs every 20 seconds
- */
+// ==========================================
+// Schedule the code generator
+// ==========================================
 export const startCodeGenerator = () => {
-  console.log('\n🚀 [TESTING MODE] Code generator starting...');
-  console.log('⏰ Will check every 20 seconds for testing\n');
+  console.log('\n🚀 [30-DAY CHALLENGE] Daily Code Generator starting...');
   
   // Run immediately on startup
   checkAndGenerateClaimCodes();
   
-  // ✅ TESTING: Run every 20 seconds (Changed from */30)
-  cron.schedule('*/20 * * * * *', () => {
-    console.log('\n⏰ [SCHEDULER] Running 20-second check...');
+  // ✅ PRODUCTION: Run every day at 9:00 AM
+  // ✅ TESTING: Run every 20 seconds
+  const schedule = process.env.NODE_ENV === 'production' ? '0 9 * * *' : '*/20 * * * * *';
+  
+  cron.schedule(schedule, () => {
+    console.log('\n⏰ [SCHEDULER] Running scheduled check...');
     checkAndGenerateClaimCodes();
   });
   
-  console.log('✅ Code generator scheduled - runs every 20 seconds (TESTING MODE)');
+  console.log(`✅ Code generator scheduled: ${schedule}`);
+  console.log(`   Production: Daily at 9:00 AM`);
+  console.log(`   Testing: Every 20 seconds\n`);
 };

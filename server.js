@@ -15,13 +15,15 @@ import depositRoutes from './src/routes/deposit.routes.js';
 import investmentRoutes from './src/routes/investment.routes.js';
 import withdrawalRoutes from './src/routes/withdrawal.routes.js';
 import adminRoutes from './src/routes/admin.routes.js';
+import verification from './src/routes/verification.routes.js';
 
-// ✅ IMPORT CODE GENERATORS (Updated!)
+// ✅ IMPORT CODE GENERATORS
 import { startCodeGenerator } from './src/jobs/codeGenerator.js';
 
 // 🔍 DEBUG: Verify .env is loaded
 console.log('\n🔍 ===== SERVER STARTUP DEBUG =====');
 console.log('RESEND_API_KEY loaded:', process.env.RESEND_API_KEY ? '✅ YES' : '❌ NO');
+console.log('JWT_SECRET loaded:', process.env.JWT_SECRET ? '✅ YES' : '❌ NO');
 console.log('NODE_ENV:', process.env.NODE_ENV);
 console.log('===================================\n');
 
@@ -57,9 +59,13 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 // Serve uploaded files
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// Request logging
+// Request logging - ✅ ENHANCED
 app.use((req, res, next) => {
-  console.log(`${req.method} ${req.url}`);
+  const timestamp = new Date().toISOString();
+  console.log(`[${timestamp}] ${req.method} ${req.url}`);
+  if (req.headers.authorization) {
+    console.log(`[${timestamp}] Auth header present: YES`);
+  }
   next();
 });
 
@@ -79,8 +85,11 @@ app.use('/api/investment', investmentRoutes);
 // Withdrawal routes
 app.use('/api/withdrawal', withdrawalRoutes);
 
-// ✅ ADMIN ROUTES - FIXED: Mount at /api/admin (not /api/admin/auth)
+// Admin routes
 app.use('/api/admin', adminRoutes);
+
+// Verification routes
+app.use('/api/verification', verification);
 
 // Health check
 app.get('/api/health', (req, res) => {
@@ -102,7 +111,8 @@ app.get('/', (req, res) => {
       deposit: '/api/deposit',
       investment: '/api/investment',
       withdrawal: '/api/withdrawal',
-      admin: '/api/admin'
+      admin: '/api/admin',
+      verification: '/api/verification'
     }
   });
 });
@@ -142,15 +152,20 @@ mongoose.connect(MONGODB_URI, {
 .then(() => {
   console.log('✅ MongoDB Connected');
   
-  // ✅ START BOTH CODE GENERATORS AFTER DB CONNECTS
+  // ✅ START CODE GENERATORS AFTER DB CONNECTS
   startCodeGenerator();
   
   app.listen(PORT, () => {
     console.log(`🚀 Server running on port ${PORT}`);
     console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log(`📍 Admin Routes: /api/admin`);
-    console.log(`⏰ Daily Task Codes: Running at 9:00 AM`);
-    console.log(`⏰ Final Claim Codes: Running at Midnight`);
+    console.log(`📍 Routes registered:`);
+    console.log(`   - Identity: /api/identity`);
+    console.log(`   - Deposit: /api/deposit`);
+    console.log(`   - Investment: /api/investment`);
+    console.log(`   - Withdrawal: /api/withdrawal`);
+    console.log(`   - Admin: /api/admin`);
+    console.log(`   - Verification: /api/verification`);
+    console.log(`⏰ Code generators started`);
   });
 })
 .catch((error) => {
