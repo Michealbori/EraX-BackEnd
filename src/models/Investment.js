@@ -31,7 +31,6 @@ const InvestmentSchema = new mongoose.Schema({
     min: [50, "Minimum investment is $50"] 
   },
 
-  // ✅ INTEREST = 100% OF AMOUNT (MONEY DOUBLES)
   interestAmount: { 
     type: Number, 
     required: true 
@@ -45,7 +44,7 @@ const InvestmentSchema = new mongoose.Schema({
   
   dailyInterestRate: {
     type: Number,
-    default: 3.333 // 100% / 30 days = 3.333% per day
+    default: 3.333
   },
   
   totalInterestEarned: {
@@ -86,7 +85,7 @@ const InvestmentSchema = new mongoose.Schema({
     completed: { type: Boolean, default: false },
     completedAt: Date,
     taskCode: String,
-    interestEarned: Number // ✅ NEW: Track interest earned this day
+    interestEarned: Number
   }],
 
   lastCheckInDate: { 
@@ -148,13 +147,6 @@ const InvestmentSchema = new mongoose.Schema({
   timestamps: true, 
   toJSON: { virtuals: true }, 
   toObject: { virtuals: true } 
-});
-
-// ✅ Virtual field: Calculate current value based on completed days
-InvestmentSchema.virtual('calculatedCurrentValue').get(function() {
-  const dailyRate = this.dailyInterestRate || 3.333;
-  const dailyInterest = this.amount * (dailyRate / 100);
-  return this.amount + (dailyInterest * this.completedDays);
 });
 
 InvestmentSchema.index({ user: 1, status: 1 });
