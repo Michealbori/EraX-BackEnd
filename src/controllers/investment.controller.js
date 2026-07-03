@@ -65,12 +65,9 @@ export const createInvestment = async (req, res) => {
       });
     }
 
-    // ✅ STEP 1: DEDUCT FROM AVAILABLE BALANCE
     const balanceBefore = user.balances.availableLiquidity;
     user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) - amountNum;
     user.balances.totalInvested = (user.balances?.totalInvested || 0) + amountNum;
-    
-    // ✅ NEW: Add to locked investment (perpetual principal)
     user.balances.lockedInvestment = (user.balances?.lockedInvestment || 0) + amountNum;
     
     console.log(`💸 Balance Before: $${balanceBefore.toFixed(2)}`);
@@ -78,7 +75,6 @@ export const createInvestment = async (req, res) => {
     console.log(`🔒 Locked Investment: $${user.balances.lockedInvestment.toFixed(2)}`);
     console.log(`💰 Total Invested: $${user.balances.totalInvested.toFixed(2)}`);
     
-    // ✅ STEP 2: DATE SETUP (30 DAYS)
     const startDate = new Date();
     let expectedEndDate = new Date(startDate);
     
@@ -90,7 +86,6 @@ export const createInvestment = async (req, res) => {
       console.log(`⏰ [PROD MODE] 30-Day challenge ends on ${expectedEndDate.toLocaleDateString()}`);
     }
     
-    // ✅ STEP 3: CALCULATE POTENTIAL RETURN (100% ROI)
     const interestAmount = amountNum;
     const potentialReturn = amountNum + interestAmount; 
     
@@ -98,7 +93,6 @@ export const createInvestment = async (req, res) => {
     
     const transactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
-    // ✅ STEP 4: CREATE INVESTMENT RECORD
     const investment = await Investment.create({
       user: user._id,
       email: user.email,
@@ -123,7 +117,11 @@ export const createInvestment = async (req, res) => {
       cycleNumber: 1,
       parentInvestment: null,
       isAutoRenewed: false,
-      profitPaidOut: 0
+      profitPaidOut: 0,
+      // ✅ NEW: Initialize daily growth tracking
+      currentValue: amountNum,
+      dailyInterestRate: 3.333,
+      totalInterestEarned: 0
     });
 
     await user.save();
@@ -148,7 +146,8 @@ export const createInvestment = async (req, res) => {
         totalDays: investment.totalDays,
         completedDays: investment.completedDays,
         daysRemaining: 30,
-        cycleNumber: investment.cycleNumber
+        cycleNumber: investment.cycleNumber,
+        currentValue: investment.currentValue
       },
       balances: {
         availableLiquidity: user.balances.availableLiquidity,
@@ -169,7 +168,7 @@ export const createInvestment = async (req, res) => {
 };
 
 // ==========================================
-// ✅ POST /api/investment/check-in/:investmentId - WITH AUTO-RENEWAL
+// ✅ POST /api/investment/check-in/:investmentId - WITH DAILY INTEREST
 // ==========================================
 export const verifyDailyCheckIn = async (req, res) => {
   try {
@@ -227,12 +226,24 @@ export const verifyDailyCheckIn = async (req, res) => {
 
     const currentDay = investment.completedDays + 1;
     
+    // ✅ CALCULATE DAILY INTEREST
+    const dailyInterestRate = investment.dailyInterestRate || 3.333;
+    const dailyInterestAmount = investment.amount * (dailyInterestRate / 100);
+    
+    console.log(`💰 Daily Interest Calculation:`, {
+      principal: investment.amount,
+      dailyRate: `${dailyInterestRate}%`,
+      dailyInterest: `$${dailyInterestAmount.toFixed(2)}`,
+      day: currentDay
+    });
+    
     investment.dailyTasks.push({
       dayNumber: currentDay,
       date: new Date(),
       completed: true,
       completedAt: new Date(),
-      taskCode: code.toUpperCase().trim()
+      taskCode: code.toUpperCase().trim(),
+      interestEarned: dailyInterestAmount
     });
     
     investment.completedDays = currentDay;
@@ -241,25 +252,29 @@ export const verifyDailyCheckIn = async (req, res) => {
     investment.claimCode = null; 
     investment.codeExpiresAt = null;
     investment.interestStatus = 'pending';
+    
+    // ✅ UPDATE CURRENT VALUE
+    investment.totalInterestEarned = (investment.totalInterestEarned || 0) + dailyInterestAmount;
+    investment.currentValue = investment.amount + investment.totalInterestEarned;
+    
+    console.log(`📈 Investment Growth:`, {
+      day: currentDay,
+      principal: investment.amount,
+      totalInterest: investment.totalInterestEarned.toFixed(2),
+      currentValue: investment.currentValue.toFixed(2)
+    });
 
     let message = "";
     let rewardReleased = false;
     let newInvestment = null;
+    let dailyGrowth = null;
 
-    // ✅ CHECK IF 30 DAYS COMPLETED - AUTO-RENEWAL LOGIC
     if (investment.completedDays >= investment.totalDays) {
-      // 🎉 CYCLE COMPLETE - PAY 50% PROFIT, KEEP 50% LOCKED
+      const profitAmount = investment.interestAmount;
       
-      const profitAmount = investment.interestAmount; // 100% ROI = $100 profit on $100
-      
-      // ✅ STEP 1: Pay profit to available balance (withdrawable)
       user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + profitAmount;
       user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + profitAmount;
       
-      // ✅ STEP 2: Keep principal locked (don't subtract from lockedInvestment)
-      // The lockedInvestment stays the same - it's the perpetual principal
-      
-      // ✅ STEP 3: Mark this investment as auto-renewed
       investment.interestStatus = 'claimed';
       investment.status = 'auto_renewed';
       investment.actualEndDate = new Date();
@@ -267,7 +282,6 @@ export const verifyDailyCheckIn = async (req, res) => {
       
       await investment.save();
       
-      // ✅ STEP 4: Create NEW investment for next cycle (auto-renewal)
       const startDate = new Date();
       let expectedEndDate = new Date(startDate);
       
@@ -285,8 +299,8 @@ export const verifyDailyCheckIn = async (req, res) => {
         assetClass: investment.assetClass,
         symbol: investment.symbol,
         name: investment.name,
-        amount: investment.amount, // Same locked amount
-        interestAmount: investment.interestAmount, // Same profit potential
+        amount: investment.amount,
+        interestAmount: investment.interestAmount,
         startDate: startDate,
         expectedEndDate: expectedEndDate,
         actualEndDate: expectedEndDate,
@@ -300,10 +314,13 @@ export const verifyDailyCheckIn = async (req, res) => {
         status: 'active',
         transactionId: newTransactionId,
         investedAt: startDate,
-        cycleNumber: investment.cycleNumber + 1, // Increment cycle
-        parentInvestment: investment._id, // Link to previous
+        cycleNumber: investment.cycleNumber + 1,
+        parentInvestment: investment._id,
         isAutoRenewed: true,
-        profitPaidOut: 0
+        profitPaidOut: 0,
+        currentValue: investment.amount,
+        dailyInterestRate: investment.dailyInterestRate,
+        totalInterestEarned: 0
       });
       
       await user.save();
@@ -313,7 +330,6 @@ export const verifyDailyCheckIn = async (req, res) => {
       
       console.log(`💰 PROFIT PAID: $${profitAmount.toFixed(2)} | 🔒 LOCKED: $${investment.amount.toFixed(2)} | 🔄 CYCLE: ${newInvestment.cycleNumber}`);
       
-      // ✅ STEP 5: Send email notification
       try {
         await sendInvestmentRenewalEmail({
           userEmail: user.email,
@@ -330,8 +346,16 @@ export const verifyDailyCheckIn = async (req, res) => {
       }
       
     } else {
-      message = `✅ Checked in successfully! Day ${investment.completedDays}/${investment.totalDays} completed.`;
+      message = `✅ Checked in successfully! Day ${investment.completedDays}/${investment.totalDays} completed. Your investment grew by $${dailyInterestAmount.toFixed(2)} today!`;
       await investment.save();
+      
+      dailyGrowth = {
+        dailyInterestEarned: dailyInterestAmount,
+        totalInterestEarned: investment.totalInterestEarned,
+        currentValue: investment.currentValue,
+        principal: investment.amount,
+        growthPercentage: ((investment.currentValue / investment.amount - 1) * 100).toFixed(2)
+      };
     }
 
     console.log(`✅ Daily check-in recorded. Day ${investment.completedDays}/${investment.totalDays}`);
@@ -344,6 +368,7 @@ export const verifyDailyCheckIn = async (req, res) => {
       completedDays: investment.completedDays,
       targetDays: investment.totalDays,
       cycleNumber: investment.cycleNumber,
+      dailyGrowth,
       newInvestment: newInvestment ? {
         id: newInvestment._id,
         transactionId: newInvestment.transactionId,
@@ -408,11 +433,14 @@ export const getUserInvestments = async (req, res) => {
         codeExpiresAt: inv.codeExpiresAt,
         dailyTasks: inv.dailyTasks,
         daysRemaining: Math.max(0, inv.totalDays - inv.completedDays),
-        // ✅ NEW: Cycle tracking
         cycleNumber: inv.cycleNumber || 1,
         parentInvestment: inv.parentInvestment,
         isAutoRenewed: inv.isAutoRenewed || false,
-        profitPaidOut: inv.profitPaidOut || 0
+        profitPaidOut: inv.profitPaidOut || 0,
+        // ✅ NEW: Include daily growth data
+        currentValue: inv.currentValue || inv.amount,
+        totalInterestEarned: inv.totalInterestEarned || 0,
+        dailyInterestRate: inv.dailyInterestRate || 3.333
       };
     });
 
@@ -477,7 +505,9 @@ export const getClaimCode = async (req, res) => {
       completedDays: investment.completedDays,
       totalDays: investment.totalDays,
       cycleNumber: investment.cycleNumber || 1,
-      isAutoRenewed: investment.isAutoRenewed || false
+      isAutoRenewed: investment.isAutoRenewed || false,
+      currentValue: investment.currentValue || investment.amount,
+      totalInterestEarned: investment.totalInterestEarned || 0
     });
 
   } catch (error) {
