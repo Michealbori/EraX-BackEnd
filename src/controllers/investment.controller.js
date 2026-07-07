@@ -93,6 +93,12 @@ export const createInvestment = async (req, res) => {
     
     const transactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
+    // ✅ Set codeGeneratedAt to 24 hours in the future
+    // This ensures the first code is generated 24 hours after investment
+    const firstCodeGenerationTime = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+    
+    console.log(`📅 First code will be generated at: ${firstCodeGenerationTime.toLocaleString()}`);
+
     const investment = await Investment.create({
       user: user._id,
       email: user.email,
@@ -121,19 +127,24 @@ export const createInvestment = async (req, res) => {
       // ✅ NEW: Initialize daily growth tracking
       currentValue: amountNum,
       dailyInterestRate: 3.333,
-      totalInterestEarned: 0
+      totalInterestEarned: 0,
+      // ✅ NEW: Set first code generation time
+      codeGeneratedAt: firstCodeGenerationTime, // Prevents immediate code generation
+      claimCode: null,
+      codeExpiresAt: null
     });
 
     await user.save();
 
     console.log(`✅ Investment created: ${transactionId}`);
+    console.log(`⏰ First daily code will be available in 24 hours`);
     console.log("=".repeat(60) + "\n");
 
     res.status(201).json({
       success: true,
       message: TESTING_MODE 
-        ? `Successfully invested $${amountNum}! 30-day challenge will complete in 10 minutes.`
-        : `Successfully invested $${amountNum}! Complete your daily tasks for 30 days to earn $${interestAmount} profit.`,
+        ? `Successfully invested $${amountNum}! 30-day challenge will complete in 10 minutes. First code available in 24 hours.`
+        : `Successfully invested $${amountNum}! Complete your daily tasks for 30 days to earn $${interestAmount} profit. First code will be emailed in 24 hours.`,
       investment: {
         id: investment._id,
         transactionId: investment.transactionId,
@@ -147,7 +158,8 @@ export const createInvestment = async (req, res) => {
         completedDays: investment.completedDays,
         daysRemaining: 30,
         cycleNumber: investment.cycleNumber,
-        currentValue: investment.currentValue
+        currentValue: investment.currentValue,
+        firstCodeAt: firstCodeGenerationTime
       },
       balances: {
         availableLiquidity: user.balances.availableLiquidity,
@@ -204,11 +216,11 @@ export const verifyDailyCheckIn = async (req, res) => {
     }
 
     if (!investment.claimCode) {
-      return res.status(400).json({ success: false, message: "No daily code available yet." });
+      return res.status(400).json({ success: false, message: "No daily code available yet. Wait for the next code generation." });
     }
 
     if (investment.codeExpiresAt && new Date() > new Date(investment.codeExpiresAt)) {
-      return res.status(400).json({ success: false, message: "Today's code has expired." });
+      return res.status(400).json({ success: false, message: "Today's code has expired. Wait for a new code." });
     }
 
     if (investment.claimCode !== code.toUpperCase().trim()) {
@@ -249,9 +261,18 @@ export const verifyDailyCheckIn = async (req, res) => {
     investment.completedDays = currentDay;
     investment.lastCheckInDate = new Date();
     investment.codeClaimedAt = new Date();
+    
+    // ✅ Clear code and set next generation time to 24 hours from now
     investment.claimCode = null; 
     investment.codeExpiresAt = null;
     investment.interestStatus = 'pending';
+    
+    // ✅ Set codeGeneratedAt to 24 hours from now
+    // This ensures the next code is generated 24 hours after this check-in
+    const nextCodeGenerationTime = new Date(new Date().getTime() + 24 * 60 * 60 * 1000);
+    investment.codeGeneratedAt = nextCodeGenerationTime;
+    
+    console.log(`📅 Next code will be generated at: ${nextCodeGenerationTime.toLocaleString()}`);
     
     // ✅ UPDATE CURRENT VALUE
     investment.totalInterestEarned = (investment.totalInterestEarned || 0) + dailyInterestAmount;
@@ -293,6 +314,9 @@ export const verifyDailyCheckIn = async (req, res) => {
       
       const newTransactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
       
+      // ✅ Set first code generation time for new cycle
+      const firstCodeGenerationTime = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
+      
       newInvestment = await Investment.create({
         user: user._id,
         email: user.email,
@@ -320,12 +344,16 @@ export const verifyDailyCheckIn = async (req, res) => {
         profitPaidOut: 0,
         currentValue: investment.amount,
         dailyInterestRate: investment.dailyInterestRate,
-        totalInterestEarned: 0
+        totalInterestEarned: 0,
+        // ✅ Set first code generation time for new cycle
+        codeGeneratedAt: firstCodeGenerationTime,
+        claimCode: null,
+        codeExpiresAt: null
       });
       
       await user.save();
       
-      message = `🎉 Cycle ${investment.cycleNumber} Complete! You earned $${profitAmount.toFixed(2)} profit. Your investment has automatically renewed for Cycle ${newInvestment.cycleNumber}.`;
+      message = `🎉 Cycle ${investment.cycleNumber} Complete! You earned $${profitAmount.toFixed(2)} profit. Your investment has automatically renewed for Cycle ${newInvestment.cycleNumber}. First code for new cycle will be available in 24 hours.`;
       rewardReleased = true;
       
       console.log(`💰 PROFIT PAID: $${profitAmount.toFixed(2)} | 🔒 LOCKED: $${investment.amount.toFixed(2)} | 🔄 CYCLE: ${newInvestment.cycleNumber}`);
@@ -346,7 +374,7 @@ export const verifyDailyCheckIn = async (req, res) => {
       }
       
     } else {
-      message = `✅ Checked in successfully! Day ${investment.completedDays}/${investment.totalDays} completed. Your investment grew by $${dailyInterestAmount.toFixed(2)} today!`;
+      message = `✅ Checked in successfully! Day ${investment.completedDays}/${investment.totalDays} completed. Your investment grew by $${dailyInterestAmount.toFixed(2)} today! Next code will be available in 24 hours.`;
       await investment.save();
       
       dailyGrowth = {
@@ -374,7 +402,8 @@ export const verifyDailyCheckIn = async (req, res) => {
         transactionId: newInvestment.transactionId,
         cycleNumber: newInvestment.cycleNumber,
         startDate: newInvestment.startDate,
-        expectedEndDate: newInvestment.expectedEndDate
+        expectedEndDate: newInvestment.expectedEndDate,
+        firstCodeAt: newInvestment.codeGeneratedAt
       } : null,
       updatedBalances: rewardReleased ? {
         availableLiquidity: user.balances.availableLiquidity,
@@ -431,13 +460,13 @@ export const getUserInvestments = async (req, res) => {
         status: inv.status || 'active',
         claimCode: inv.claimCode,
         codeExpiresAt: inv.codeExpiresAt,
+        codeGeneratedAt: inv.codeGeneratedAt, // ✅ NEW: Include next code generation time
         dailyTasks: inv.dailyTasks,
         daysRemaining: Math.max(0, inv.totalDays - inv.completedDays),
         cycleNumber: inv.cycleNumber || 1,
         parentInvestment: inv.parentInvestment,
         isAutoRenewed: inv.isAutoRenewed || false,
         profitPaidOut: inv.profitPaidOut || 0,
-        // ✅ NEW: Include daily growth data
         currentValue: inv.currentValue || inv.amount,
         totalInterestEarned: inv.totalInterestEarned || 0,
         dailyInterestRate: inv.dailyInterestRate || 3.333
@@ -501,6 +530,7 @@ export const getClaimCode = async (req, res) => {
       success: true, 
       code: investment.claimCode || null,
       expiresAt: investment.codeExpiresAt,
+      generatedAt: investment.codeGeneratedAt,
       status: investment.interestStatus,
       completedDays: investment.completedDays,
       totalDays: investment.totalDays,

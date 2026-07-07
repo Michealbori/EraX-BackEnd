@@ -20,19 +20,30 @@ export const checkAndGenerateClaimCodes = async () => {
     console.log('⏰ Current time:', new Date().toLocaleTimeString());
     
     const now = new Date();
-    const todayStart = new Date(now.setHours(0, 0, 0, 0));
     
     // ✅ Find investments that need a code for TODAY
     // They must be active, not completed (completedDays < 30), and either:
-    // - Never had a code generated (claimCode is null/undefined)
-    // - Had a code generated on a previous day (codeGeneratedAt < todayStart)
+    // - Never had a code generated AND 24 hours have passed since investment
+    // - Had a code generated on a previous day AND 24 hours have passed
     const investmentsNeedingCode = await Investment.find({
       status: 'active',
       completedDays: { $lt: 30 }, // Not completed yet
       $or: [
-        { claimCode: null }, // Never generated
-        { claimCode: { $exists: false } }, // Field doesn't exist
-        { codeGeneratedAt: { $lt: todayStart } } // Last generated on a previous day
+        // First code: Never generated AND 24+ hours since investment
+        { 
+          $and: [
+            { $or: [{ claimCode: null }, { claimCode: { $exists: false } }] },
+            { codeGeneratedAt: { $exists: false } },
+            { investedAt: { $lte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } }
+          ]
+        },
+        // Subsequent codes: Last generated 24+ hours ago
+        { 
+          $and: [
+            { $or: [{ claimCode: null }, { claimCode: { $exists: false } }] },
+            { codeGeneratedAt: { $lte: new Date(now.getTime() - 24 * 60 * 60 * 1000) } }
+          ]
+        }
       ]
     }).populate('user');
 
@@ -59,11 +70,12 @@ export const checkAndGenerateClaimCodes = async () => {
         await investment.save();
 
         console.log(`✅ Generated Day ${investment.completedDays + 1} code: ${claimCode} for investment ${investment._id}`);
+        console.log(`   Code expires: ${investment.codeExpiresAt.toLocaleString()}`);
 
         // ✅ Send email to user
         const user = investment.user;
         if (user && user.email) {
-          await sendOTPEmail(user.email, claimCode, 'claim_code');
+          await sendOTPEmail(user.email, claimCode, 'daily_task');
           console.log(`📧 Sent Day ${investment.completedDays + 1} code to ${user.email}`);
         }
 
@@ -85,8 +97,8 @@ export const checkAndGenerateClaimCodes = async () => {
 export const startCodeGenerator = () => {
   console.log('\n🚀 [30-DAY CHALLENGE] Daily Code Generator starting...');
   
-  // Run immediately on startup
-  checkAndGenerateClaimCodes();
+  // ✅ DON'T run immediately on startup - wait for scheduled time
+  // This prevents generating codes for brand new investments
   
   // ✅ PRODUCTION: Run every day at 9:00 AM
   // ✅ TESTING: Run every 20 seconds
@@ -99,5 +111,6 @@ export const startCodeGenerator = () => {
   
   console.log(`✅ Code generator scheduled: ${schedule}`);
   console.log(`   Production: Daily at 9:00 AM`);
-  console.log(`   Testing: Every 20 seconds\n`);
+  console.log(`   Testing: Every 20 seconds`);
+  console.log(`   ⚠️  First code will be generated 24 hours after investment\n`);
 };
