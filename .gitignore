@@ -6,11 +6,16 @@ node_modules/
 .env.local
 .env.production
 
-# Firebase service account key
+# Firebase service account keys
+src/config/firebase-admin.json
+**/firebase-admin.json
 src/config/serviceAccountKey.json
 **/serviceAccountKey.json
 *.key
 *.secret
+
+# All JSON files in the config folder (Optional but safer)
+# src/config/*.json
 
 # Build
 dist/
