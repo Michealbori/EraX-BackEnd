@@ -1,5 +1,6 @@
 import Investment from "../models/Investment.js";
 import User from "../models/User.js";
+import Deposit from "../models/Deposit.js"; // ✅ ADDED: For referral commission calculation
 import { SURVEY_QUESTION_POOL, SURVEY_METADATA } from "../config/surveyQuestions.js";
 import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
@@ -10,18 +11,15 @@ import { sendOTPEmail } from '../config/email.js';
 // HELPERS & UTILITIES
 // =====================================================
 
-// Helper to securely get the authenticated user
 const getSecureUser = async (req, res) => {
-  // 1. Try to get user from Auth Middleware (Recommended & Secure)
   if (req.user?.id) {
     const user = await User.findById(req.user.id);
     if (user) return user;
   }
   
-  // 2. Fallback: Extract from body/query/params (WARNING: Vulnerable to IDOR if routes aren't protected!)
   const email = req.body?.email || req.query?.email || req.params?.email;
   if (email) {
-    console.warn("⚠️ SECURITY WARNING: Identifying user via email in request body/query. Please protect this route with auth middleware!");
+    console.warn("⚠️ SECURITY WARNING: Identifying user via email in request body/query.");
     return await User.findOne({ email: email.toLowerCase().trim() });
   }
 
@@ -59,7 +57,6 @@ const calculateEarlyWithdrawal = (investment) => {
 };
 
 const generateToken = (id) => {
-  // SECURITY FIX: Never use a hardcoded fallback for JWT secrets in production
   if (!process.env.JWT_SECRET) {
     throw new Error("FATAL: JWT_SECRET environment variable is not set!");
   }
@@ -70,7 +67,6 @@ const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
 
-// Generate secure random referral code
 const generateUniqueReferralCode = async () => {
   while (true) {
     const code = `ERAX-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
@@ -102,13 +98,11 @@ export const registerUserNode = async (req, res) => {
     const otp = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Handle Referral
     let referredByData = null;
     if (referralCode && referralCode.trim()) {
       const referrer = await User.findOne({ referralCode: referralCode.trim().toUpperCase() });
       if (referrer) {
         referredByData = { id: referrer._id, name: referrer.fullName || 'Unknown', email: referrer.email };
-        // Increment referrer count securely
         await User.findByIdAndUpdate(referrer._id, { $inc: { 'balances.referralCount': 1 } });
       }
     }
@@ -127,7 +121,17 @@ export const registerUserNode = async (req, res) => {
       authProvider: 'email',
       referredBy: referredByData,
       referralCode: userReferralCode,
-      balances: { availableLiquidity: 0, totalDeposited: 0, totalWithdrawn: 0, netProfitLoss: 0, totalInvested: 0, currentInvestmentValue: 0, referralCount: 0, referralEarnings: 0 }
+      balances: { 
+        availableLiquidity: 0, 
+        lockedInvestment: 0, // ✅ ADDED
+        totalDeposited: 0, 
+        totalWithdrawn: 0, 
+        netProfitLoss: 0, 
+        totalInvested: 0, 
+        currentInvestmentValue: 0, 
+        referralCount: 0, 
+        referralEarnings: 0 
+      }
     });
 
     try {
@@ -276,7 +280,6 @@ export const handleGoogleSignIn = async (req, res) => {
       });
     }
 
-    // SECURITY FIX: Use crypto for random password instead of predictable uid + Date.now()
     const randomPassword = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
 
     user = await User.create({
@@ -287,7 +290,17 @@ export const handleGoogleSignIn = async (req, res) => {
       isVerified: true,
       authProvider: 'google',
       password: randomPassword,
-      balances: { availableLiquidity: 0, totalDeposited: 0, totalWithdrawn: 0, netProfitLoss: 0, totalInvested: 0, currentInvestmentValue: 0, referralCount: 0, referralEarnings: 0 },
+      balances: { 
+        availableLiquidity: 0, 
+        lockedInvestment: 0, // ✅ ADDED
+        totalDeposited: 0, 
+        totalWithdrawn: 0, 
+        netProfitLoss: 0, 
+        totalInvested: 0, 
+        currentInvestmentValue: 0, 
+        referralCount: 0, 
+        referralEarnings: 0 
+      },
       lastLoginAt: new Date()
     });
 
@@ -322,10 +335,24 @@ export const getProfileNode = async (req, res) => {
     res.status(200).json({
       success: true,
       user: {
-        id: user._id, email: user.email, fullName: user.fullName, firstName: user.firstName, lastName: user.lastName,
-        phone: user.phone, location: user.location, photoURL: user.photoURL, isVerified: user.isVerified, isAdmin: user.isAdmin,
-        referralCode: user.referralCode, referredBy: user.referredBy || null, balances: user.balances, twoStep: user.twoStep, 
-        lastLoginAt: user.lastLoginAt, authProvider: user.authProvider, createdAt: user.createdAt, updatedAt: user.updatedAt
+        id: user._id, 
+        email: user.email, 
+        fullName: user.fullName, 
+        firstName: user.firstName, 
+        lastName: user.lastName,
+        phone: user.phone, 
+        location: user.location, 
+        photoURL: user.photoURL, 
+        isVerified: user.isVerified, 
+        isAdmin: user.isAdmin,
+        referralCode: user.referralCode, 
+        referredBy: user.referredBy || null, 
+        balances: user.balances, 
+        twoStep: user.twoStep, 
+        lastLoginAt: user.lastLoginAt, 
+        authProvider: user.authProvider, 
+        createdAt: user.createdAt, 
+        updatedAt: user.updatedAt
       }
     });
   } catch (error) {
@@ -366,7 +393,7 @@ export const updateEmailNode = async (req, res) => {
     if (existingUser) return res.status(400).json({ success: false, message: "Email already in use" });
 
     user.email = cleanNewEmail;
-    user.isVerified = false; // Force re-verification when email changes
+    user.isVerified = false;
     await user.save();
 
     res.status(200).json({ success: true, message: "Email updated successfully. Please verify your new email." });
@@ -439,7 +466,6 @@ export const requestEmailChangeNode = async (req, res) => {
     user.pendingEmail = newEmail.toLowerCase().trim();
     await user.save();
 
-    // LOGIC FIX: Actually send the email!
     try {
       await sendOTPEmail(user.email, otp);
     } catch (emailError) {
@@ -465,7 +491,7 @@ export const verifyEmailChangeNode = async (req, res) => {
     user.emailChangeOtp = null;
     user.emailChangeOtpExpires = null;
     user.pendingEmail = null;
-    user.isVerified = false; // Force re-verification
+    user.isVerified = false;
     await user.save();
 
     res.status(200).json({ success: true, message: "Email changed successfully" });
@@ -511,21 +537,28 @@ export const getDashboardMetrics = async (req, res) => {
     const user = await getSecureUser(req, res);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    const totalPortfolio = (user.balances?.availableLiquidity || 0) + (user.balances?.currentInvestmentValue || 0);
+    // ✅ UPDATED: Include lockedInvestment in total portfolio
+    const totalPortfolio = (user.balances?.availableLiquidity || 0) + 
+                          (user.balances?.lockedInvestment || 0) + 
+                          (user.balances?.currentInvestmentValue || 0);
 
     res.status(200).json({
       success: true,
       balances: {
         availableLiquidity: user.balances?.availableLiquidity || 0,
+        lockedInvestment: user.balances?.lockedInvestment || 0, // ✅ ADDED
         totalPortfolio,
         netProfitLoss: user.balances?.netProfitLoss || 0,
         totalDeposited: user.balances?.totalDeposited || 0,
-        totalWithdrawn: user.balances?.totalWithdrawn || 0
+        totalWithdrawn: user.balances?.totalWithdrawn || 0,
+        totalInvested: user.balances?.totalInvested || 0, // ✅ ADDED
+        currentInvestmentValue: user.balances?.currentInvestmentValue || 0 // ✅ ADDED
       },
       allocations: user.balances?.allocations || { stocks: 0, bonds: 0, commodities: 0 },
       user: { id: user._id, email: user.email, fullName: user.fullName, isAdmin: user.isAdmin }
     });
   } catch (error) {
+    console.error("GET DASHBOARD METRICS ERROR:", error);
     res.status(500).json({ success: false, message: "Failed to fetch metrics" });
   }
 };
@@ -562,32 +595,84 @@ export const getMyReferralCode = async (req, res) => {
   }
 };
 
+// ✅ UPDATED: Calculate 3% commission from referred users' deposits
 export const getReferralStats = async (req, res) => {
   try {
     const user = await getSecureUser(req, res);
     if (!user) return res.status(404).json({ success: false, message: "User not found" });
 
-    const referredUsers = await User.find({ "referredBy.id": user._id }).select('fullName email createdAt').sort({ createdAt: -1 }).limit(10);
-    const referralCount = user.balances?.referralCount || referredUsers.length;
+    console.log(`📊 Fetching referral stats for user: ${user.email}`);
 
-    // LOGIC FIX: Calculate flat tier bonus. 
-    let calculatedEarnings = 0;
-    if (referralCount >= 20) calculatedEarnings = 20; 
-    else if (referralCount >= 10) calculatedEarnings = 10;
+    // ✅ Find all users referred by this user
+    const referredUsers = await User.find({ 
+      'referredBy.id': user._id 
+    }).select('fullName email createdAt').sort({ createdAt: -1 });
 
-    const referralsList = referredUsers.map(ref => ({
-      id: ref._id, name: ref.fullName || ref.email.split('@')[0], email: ref.email,
-      date: new Date(ref.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }),
-      earned: 0 
-    }));
+    console.log(`📥 Found ${referredUsers.length} referred users`);
+
+    // ✅ Calculate total earnings from deposits (3% commission)
+    let totalEarnings = 0;
+    const referralsWithDetails = [];
+
+    for (const referredUser of referredUsers) {
+      // Find completed deposits by this referred user
+      const deposits = await Deposit.find({
+        user: referredUser._id,
+        status: { $in: ['completed', 'confirmed'] }
+      });
+
+      // Calculate 3% commission from each deposit
+      let userEarnings = 0;
+      deposits.forEach(deposit => {
+        const commission = deposit.amount * 0.03; // 3% commission
+        userEarnings += commission;
+      });
+
+      totalEarnings += userEarnings;
+
+      referralsWithDetails.push({
+        id: referredUser._id,
+        name: referredUser.fullName || referredUser.email.split('@')[0],
+        email: referredUser.email,
+        joinedAt: referredUser.createdAt,
+        date: new Date(referredUser.createdAt).toLocaleDateString('en-US', { 
+          month: 'short', day: 'numeric', year: 'numeric' 
+        }),
+        earned: userEarnings,
+        totalDeposits: deposits.reduce((sum, d) => sum + d.amount, 0),
+        depositCount: deposits.length
+      });
+    }
+
+    console.log(`💰 Total earnings: $${totalEarnings.toFixed(2)}`);
+
+    // ✅ Update user's referral earnings in database
+    if (totalEarnings > 0 && totalEarnings !== (user.balances?.referralEarnings || 0)) {
+      user.balances.referralEarnings = totalEarnings;
+      await user.save();
+      console.log(`✅ Updated referral earnings for ${user.email}`);
+    }
 
     res.status(200).json({
       success: true,
-      stats: { totalReferrals: referralCount, referralCode: user.referralCode, earnings: parseFloat(calculatedEarnings.toFixed(2)) },
-      referrals: referralsList
+      totalReferrals: referredUsers.length,
+      totalEarnings: totalEarnings,
+      referrals: referralsWithDetails,
+      stats: {
+        totalReferrals: referredUsers.length,
+        earnings: totalEarnings,
+        referralCode: user.referralCode
+      },
+      timestamp: new Date()
     });
+
   } catch (error) {
-    res.status(500).json({ success: false, message: "Failed to get stats" });
+    console.error("❌ GET REFERRAL STATS ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get referral stats",
+      error: error.message
+    });
   }
 };
 
@@ -610,11 +695,9 @@ export const createInvestment = async (req, res) => {
       return res.status(400).json({ success: false, message: `Insufficient balance. Available: $${(user.balances?.availableLiquidity || 0).toFixed(2)}` });
     }
 
-    // LOGIC FIX: Deduct balance ONCE.
     user.balances.availableLiquidity -= amountNum;
     user.balances.totalInvested = (user.balances.totalInvested || 0) + amountNum;
     
-    // Use env var for testing mode instead of hardcoding `true`
     const TESTING_MODE = process.env.NODE_ENV !== 'production'; 
     const maturityDate = new Date();
     if (TESTING_MODE) {
@@ -623,25 +706,37 @@ export const createInvestment = async (req, res) => {
       maturityDate.setHours(maturityDate.getHours() + 24);
     }
 
-    // Note: interestAmount = amountNum means 100% ROI. Ensure this is intended for production!
     const interestAmount = amountNum; 
     const transactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
     const investment = await Investment.create({
-      user: user._id, email: user.email, assetClass: assetClass.toLowerCase(), symbol: assetClass.toUpperCase(),
-      name: `${assetClass} Investment`, amount: amountNum, interestAmount, maturityDate, actualEndDate: maturityDate, 
-      isComplete: true, interestStatus: 'pending', status: 'active', transactionId
+      user: user._id, 
+      email: user.email, 
+      assetClass: assetClass.toLowerCase(), 
+      symbol: assetClass.toUpperCase(),
+      name: `${assetClass} Investment`, 
+      amount: amountNum, 
+      interestAmount, 
+      maturityDate, 
+      actualEndDate: maturityDate, 
+      isComplete: true, 
+      interestStatus: 'pending', 
+      status: 'active', 
+      transactionId
     });
 
-    // Save the user AFTER deducting the balance
     await user.save();
 
     res.status(201).json({
       success: true,
       message: `Successfully invested $${amountNum}!`,
       investment: {
-        id: investment._id, transactionId: investment.transactionId, assetClass: investment.assetClass,
-        amount: investment.amount, interestAmount: investment.interestAmount, maturityDate: investment.maturityDate,
+        id: investment._id, 
+        transactionId: investment.transactionId, 
+        assetClass: investment.assetClass,
+        amount: investment.amount, 
+        interestAmount: investment.interestAmount, 
+        maturityDate: investment.maturityDate,
         hoursUntilMaturity: Math.ceil((maturityDate - new Date()) / (1000 * 60 * 60))
       }
     });
@@ -666,11 +761,23 @@ export const getUserInvestments = async (req, res) => {
       if (inv.status === 'active' && !isMatured) earlyWithdrawalInfo = calculateEarlyWithdrawal(inv);
 
       return {
-        id: inv._id, transactionId: inv.transactionId || '', assetClass: inv.assetClass || 'stocks', symbol: inv.symbol || 'STOCK',
-        name: inv.name || 'Investment', amount: (inv.amount || 0).toFixed(2), interestAmount: (inv.interestAmount || 0).toFixed(2),
-        investedAt: inv.investedAt, maturityDate: inv.maturityDate, hoursUntilMaturity, isMatured,
-        interestStatus: inv.interestStatus || 'pending', surveyCompleted: inv.surveyResponses && inv.surveyResponses.size > 0,
-        status: inv.status || 'active', earlyWithdrawalInfo, earlyWithdrawalPayout: inv.earlyWithdrawalPayout || 0, earlyWithdrawalPenalty: inv.earlyWithdrawalPenalty || 0
+        id: inv._id, 
+        transactionId: inv.transactionId || '', 
+        assetClass: inv.assetClass || 'stocks', 
+        symbol: inv.symbol || 'STOCK',
+        name: inv.name || 'Investment', 
+        amount: (inv.amount || 0).toFixed(2), 
+        interestAmount: (inv.interestAmount || 0).toFixed(2),
+        investedAt: inv.investedAt, 
+        maturityDate: inv.maturityDate, 
+        hoursUntilMaturity, 
+        isMatured,
+        interestStatus: inv.interestStatus || 'pending', 
+        surveyCompleted: inv.surveyResponses && inv.surveyResponses.size > 0,
+        status: inv.status || 'active', 
+        earlyWithdrawalInfo, 
+        earlyWithdrawalPayout: inv.earlyWithdrawalPayout || 0, 
+        earlyWithdrawalPenalty: inv.earlyWithdrawalPenalty || 0
       };
     });
 
@@ -684,7 +791,10 @@ export const getUserInvestments = async (req, res) => {
       investments: processedInvestments,
       summary: {
         totalInvested: activeInvestments.reduce((sum, i) => sum + parseFloat(i.amount || 0), 0),
-        totalPendingInterest: pendingInterest, maturedCount: maturedInvestments.length, activeCount: activeInvestments.length, investmentCount: processedInvestments.length
+        totalPendingInterest: pendingInterest, 
+        maturedCount: maturedInvestments.length, 
+        activeCount: activeInvestments.length, 
+        investmentCount: processedInvestments.length
       }
     });
   } catch (error) {
@@ -789,7 +899,6 @@ export const earlyWithdrawal = async (req, res) => {
 
     if (investment.status !== 'active') return res.status(400).json({ success: false, message: "Not active" });
 
-    // LOGIC FIX: Check actual date instead of non-existent `isMatured` property
     const isMatured = investment.maturityDate && new Date() >= new Date(investment.maturityDate);
     if (isMatured) return res.status(400).json({ success: false, message: "Matured. Complete survey instead." });
 
@@ -815,12 +924,12 @@ export const earlyWithdrawal = async (req, res) => {
 };
 
 // =====================================================
-// DAILY CHECK-IN & 30-DAY REWARD (Replaces Survey)
+// DAILY CHECK-IN & 30-DAY REWARD
 // =====================================================
 
 export const verifyDailyCheckIn = async (req, res) => {
   try {
-    const { id } = req.params; // Investment ID
+    const { id } = req.params;
     const { code } = req.body;
     const user = await getSecureUser(req, res);
     
@@ -831,27 +940,22 @@ export const verifyDailyCheckIn = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    // Check if reward already released (Using your schema's interestStatus)
     if (investment.interestStatus === 'claimed') {
       return res.status(400).json({ success: false, message: "Reward already released! Challenge completed." });
     }
 
-    // Check if there is a code to verify
     if (!investment.claimCode) {
       return res.status(400).json({ success: false, message: "No daily code available yet. Please wait for the system to generate today's code." });
     }
 
-    // Check if code is expired (24 hours)
     if (investment.codeExpiresAt && new Date() > new Date(investment.codeExpiresAt)) {
       return res.status(400).json({ success: false, message: "Today's code has expired. Please wait for a new one." });
     }
 
-    // Verify the code (case-insensitive)
     if (investment.claimCode !== code.toUpperCase().trim()) {
       return res.status(400).json({ success: false, message: "Invalid daily code. Please try again." });
     }
 
-    // Prevent multiple check-ins on the same day using your dailyTasks array
     const today = new Date().setHours(0, 0, 0, 0);
     const alreadyCheckedInToday = investment.dailyTasks.some(task => 
       new Date(task.date).setHours(0, 0, 0, 0) === today && task.completed
@@ -861,10 +965,8 @@ export const verifyDailyCheckIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "You have already checked in today! Come back tomorrow." });
     }
 
-    // ✅ CODE IS CORRECT & NOT CHECKED IN TODAY
     const currentDay = investment.completedDays + 1;
     
-    // Push to dailyTasks array (Matches your Investment.js schema perfectly!)
     investment.dailyTasks.push({
       dayNumber: currentDay,
       date: new Date(),
@@ -875,22 +977,18 @@ export const verifyDailyCheckIn = async (req, res) => {
     
     investment.completedDays = currentDay;
     investment.codeClaimedAt = new Date();
-    
-    // Clear the code so they can't reuse it today, and the cron job will generate a new one tomorrow
     investment.claimCode = null; 
     investment.codeExpiresAt = null;
-    investment.interestStatus = 'pending'; // Reset to pending for tomorrow's code
+    investment.interestStatus = 'pending';
 
     let message = "";
     let rewardReleased = false;
 
-    // Check if they reached 30 days (using your totalDays field)
     if (investment.completedDays >= investment.totalDays) {
-      // 🎉 RELEASE REWARD! (Double the money they invested)
       const rewardAmount = investment.amount * 2; 
       
       user.balances.availableLiquidity = (user.balances?.availableLiquidity || 0) + rewardAmount;
-      user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + investment.amount; // Profit is 1x the investment
+      user.balances.netProfitLoss = (user.balances?.netProfitLoss || 0) + investment.amount;
       await user.save();
 
       investment.interestStatus = 'claimed';
@@ -923,7 +1021,6 @@ export const verifyDailyCheckIn = async (req, res) => {
   }
 };
 
-// Optional: Endpoint for frontend to show progress (e.g., "Day 5/30")
 export const getCheckInStatus = async (req, res) => {
   try {
     const { id } = req.params;
@@ -935,7 +1032,6 @@ export const getCheckInStatus = async (req, res) => {
       return res.status(403).json({ success: false, message: "Unauthorized" });
     }
 
-    // Get the last check-in date from the dailyTasks array
     const lastTask = investment.dailyTasks.length > 0 ? investment.dailyTasks[investment.dailyTasks.length - 1] : null;
 
     res.status(200).json({
@@ -954,12 +1050,11 @@ export const getCheckInStatus = async (req, res) => {
 };
 
 // =====================================================
-// GET CURRENT USER (CRITICAL FOR PROFILE PAGE)
+// GET CURRENT USER
 // =====================================================
 
 export const getCurrentUser = async (req, res) => {
   try {
-    // This function REQUIRES authentication middleware to set req.user
     if (!req.user || !req.user.id) {
       console.error("❌ getCurrentUser: No user in request. req.user =", req.user);
       return res.status(401).json({ 
@@ -1010,7 +1105,10 @@ export const getCurrentUser = async (req, res) => {
   }
 };
 
-// Export all functions
+// =====================================================
+// EXPORT ALL FUNCTIONS
+// =====================================================
+
 export default {
   registerUserNode,
   loginUserNode,
@@ -1029,7 +1127,7 @@ export default {
   getDashboardMetrics,
   validateReferralCodeEndpoint,
   getMyReferralCode,
-  getReferralStats,
+  getReferralStats, // ✅ UPDATED
   handleGoogleSignIn,
   checkEmailAvailability,
   getCurrentUser,

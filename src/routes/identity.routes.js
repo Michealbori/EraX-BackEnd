@@ -1,4 +1,4 @@
-import express from "express";
+import express from 'express';
 import {
   registerUserNode,
   loginUserNode,
@@ -21,68 +21,67 @@ import {
   handleGoogleSignIn,
   checkEmailAvailability,
   getCurrentUser,
+  createInvestment,
+  getUserInvestments,
+  getSurveyQuestions,
+  submitSurvey,
+  claimInterest,
+  earlyWithdrawal,
   verifyDailyCheckIn,
   getCheckInStatus
-} from "../controllers/identity.controller.js";
+} from '../controllers/identity.controller.js';
 
-import { protect } from "../middlewares/auth.middleware.js"; // ✅ ADDED THIS IMPORT
-import { upload } from "../middlewares/upload.js";
+import { protect } from '../middlewares/auth.middleware.js';
 
 const router = express.Router();
 
-// =====================================================
-// AUTH ROUTES (Public - no auth required)
-// =====================================================
-router.post("/register", registerUserNode);
-router.post("/login", loginUserNode);
-router.post("/verify-otp", verifyOtpToken);
-router.post("/resend-otp", resendOtpToken);
-router.post("/google-signin", handleGoogleSignIn);
-router.post("/set-password", setPasswordNode);
-router.get("/check-email", checkEmailAvailability);
+// ==========================================
+// AUTH ROUTES
+// ==========================================
+router.post('/register', registerUserNode);
+router.post('/login', loginUserNode);
+router.post('/google', handleGoogleSignIn);
+router.post('/verify-otp', verifyOtpToken);
+router.post('/resend-otp', resendOtpToken);
+router.get('/check-email', checkEmailAvailability);
 
-// =====================================================
-// CURRENT USER ROUTE - ✅ FIXED: Added protect middleware
-// =====================================================
-router.get("/current-user", protect, getCurrentUser);
+// ==========================================
+// PROFILE & SETTINGS ROUTES
+// ==========================================
+router.get('/profile', protect, getProfileNode);
+router.get('/current-user', protect, getCurrentUser);
+router.put('/profile', protect, updateProfileNode);
+router.put('/email', protect, updateEmailNode);
+router.post('/set-password', protect, setPasswordNode);
+router.put('/password', protect, updatePasswordNode);
+router.delete('/account', protect, deleteAccountNode);
+router.post('/request-email-change', protect, requestEmailChangeNode);
+router.post('/verify-email-change', protect, verifyEmailChangeNode);
+router.post('/upload-avatar', protect, uploadAvatarNode);
+router.delete('/delete-avatar', protect, deleteAvatarNode);
 
-// =====================================================
-// PROFILE ROUTES - ✅ FIXED: Added protect middleware
-// =====================================================
-router.get("/profile", protect, getProfileNode);
-router.post("/update-profile", protect, updateProfileNode);
-router.post("/update-email", protect, updateEmailNode);
-router.post("/update-password", protect, updatePasswordNode);
-router.delete("/delete", protect, deleteAccountNode);
+// ==========================================
+// DASHBOARD & REFERRALS ROUTES
+// ==========================================
+router.get('/dashboard-metrics', protect, getDashboardMetrics);
+router.get('/referral/validate/:code', validateReferralCodeEndpoint);
+router.get('/referral/code', protect, getMyReferralCode);
+router.get('/referral-stats', protect, getReferralStats); // ✅ THIS IS THE MISSING ROUTE!
 
-// =====================================================
-// EMAIL CHANGE ROUTES - ✅ FIXED: Added protect middleware
-// =====================================================
-router.post("/request-email-change", protect, requestEmailChangeNode);
-router.post("/verify-email-change", protect, verifyEmailChangeNode);
+// ==========================================
+// INVESTMENT ROUTES
+// ==========================================
+router.post('/investment/create', protect, createInvestment);
+router.get('/investment/list', protect, getUserInvestments);
+router.get('/investment/survey/:investmentId', protect, getSurveyQuestions);
+router.post('/investment/survey/:id', protect, submitSurvey);
+router.post('/investment/claim/:id', protect, claimInterest);
+router.post('/investment/early-withdrawal/:id', protect, earlyWithdrawal);
 
-// =====================================================
-// AVATAR ROUTES - ✅ FIXED: Added protect middleware
-// =====================================================
-router.post("/upload-avatar", protect, upload.single('avatar'), uploadAvatarNode);
-router.delete("/delete-avatar", protect, deleteAvatarNode);
-
-// =====================================================
-// DASHBOARD METRICS ROUTE - ✅ FIXED: Added protect middleware
-// =====================================================
-router.get("/dashboard-metrics", protect, getDashboardMetrics);
-
-// =====================================================
-// REFERRAL ROUTES - ✅ FIXED: Added protect middleware
-// =====================================================
-router.get("/validate-referral/:code", validateReferralCodeEndpoint);
-router.get("/my-referral-code/:email", protect, getMyReferralCode);
-router.get("/referral-stats/:email", protect, getReferralStats);
-
-// =====================================================
-// DAILY CHECK-IN ROUTES - ✅ FIXED: Added protect middleware
-// =====================================================
-router.post("/investments/:id/check-in", protect, verifyDailyCheckIn);
-router.get("/investments/:id/status", protect, getCheckInStatus);
+// ==========================================
+// DAILY CHECK-IN ROUTES
+// ==========================================
+router.post('/investment/check-in/:id', protect, verifyDailyCheckIn);
+router.get('/investment/check-in-status/:id', protect, getCheckInStatus);
 
 export default router;

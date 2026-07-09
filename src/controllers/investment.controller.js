@@ -93,8 +93,6 @@ export const createInvestment = async (req, res) => {
     
     const transactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
 
-    // ✅ Set codeGeneratedAt to 24 hours in the future
-    // This ensures the first code is generated 24 hours after investment
     const firstCodeGenerationTime = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
     
     console.log(`📅 First code will be generated at: ${firstCodeGenerationTime.toLocaleString()}`);
@@ -124,12 +122,10 @@ export const createInvestment = async (req, res) => {
       parentInvestment: null,
       isAutoRenewed: false,
       profitPaidOut: 0,
-      // ✅ NEW: Initialize daily growth tracking
       currentValue: amountNum,
       dailyInterestRate: 3.333,
       totalInterestEarned: 0,
-      // ✅ NEW: Set first code generation time
-      codeGeneratedAt: firstCodeGenerationTime, // Prevents immediate code generation
+      codeGeneratedAt: firstCodeGenerationTime,
       claimCode: null,
       codeExpiresAt: null
     });
@@ -180,6 +176,121 @@ export const createInvestment = async (req, res) => {
 };
 
 // ==========================================
+// ✅ NEW: Direct Database Code Validation (No Errors)
+// ==========================================
+export const validateDailyCode = async (req, res) => {
+  try {
+    const { investmentId } = req.params;
+    const { code } = req.body;
+    
+    const user = await getSecureUser(req, res);
+    if (!user) {
+      return res.status(401).json({ success: false, valid: false, message: "Authentication required" });
+    }
+
+    // Validate input
+    if (!code || typeof code !== 'string') {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "Please enter a code" 
+      });
+    }
+
+    // ✅ Direct database lookup
+    const investment = await Investment.findOne({ 
+      _id: investmentId, 
+      user: user._id 
+    });
+
+    if (!investment) {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "Investment not found" 
+      });
+    }
+
+    // Check if already completed
+    if (investment.interestStatus === 'claimed') {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "This investment cycle is already complete",
+        completed: true
+      });
+    }
+
+    // Check if there's a code to validate
+    if (!investment.claimCode) {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "No code available yet. Check back later!",
+        waiting: true
+      });
+    }
+
+    // Check if code expired
+    if (investment.codeExpiresAt && new Date() > new Date(investment.codeExpiresAt)) {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "This code has expired. A new one will be generated soon.",
+        expired: true
+      });
+    }
+
+    // Check if already checked in today
+    const today = new Date().setHours(0, 0, 0, 0);
+    const alreadyCheckedInToday = investment.dailyTasks.some(task => 
+      new Date(task.date).setHours(0, 0, 0, 0) === today && task.completed
+    );
+    
+    if (alreadyCheckedInToday) {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "You've already checked in today. Come back tomorrow!",
+        alreadyCheckedIn: true
+      });
+    }
+
+    // ✅ DIRECT DATABASE VALIDATION - Case insensitive, trim whitespace
+    const normalizedInput = code.toUpperCase().trim();
+    const normalizedStored = investment.claimCode.toUpperCase().trim();
+    
+    const isValid = normalizedInput === normalizedStored;
+
+    if (isValid) {
+      return res.status(200).json({ 
+        success: true, 
+        valid: true, 
+        message: "✅ Code is valid! Ready to check in.",
+        day: investment.completedDays + 1,
+        totalDays: investment.totalDays,
+        currentValue: investment.currentValue || investment.amount
+      });
+    } else {
+      return res.status(200).json({ 
+        success: false, 
+        valid: false, 
+        message: "❌ Invalid code. Please check and try again.",
+        invalid: true
+      });
+    }
+
+  } catch (error) {
+    console.error("❌ VALIDATE CODE ERROR:", error);
+    return res.status(200).json({ 
+      success: false, 
+      valid: false, 
+      message: "Validation error. Please try again." 
+    });
+  }
+};
+
+// ==========================================
 // ✅ POST /api/investment/check-in/:investmentId - WITH DAILY INTEREST
 // ==========================================
 export const verifyDailyCheckIn = async (req, res) => {
@@ -223,7 +334,11 @@ export const verifyDailyCheckIn = async (req, res) => {
       return res.status(400).json({ success: false, message: "Today's code has expired. Wait for a new code." });
     }
 
-    if (investment.claimCode !== code.toUpperCase().trim()) {
+    // ✅ Case-insensitive comparison with trim
+    const normalizedInput = code.toUpperCase().trim();
+    const normalizedStored = investment.claimCode.toUpperCase().trim();
+    
+    if (normalizedInput !== normalizedStored) {
       return res.status(400).json({ success: false, message: "Invalid daily code." });
     }
 
@@ -254,7 +369,7 @@ export const verifyDailyCheckIn = async (req, res) => {
       date: new Date(),
       completed: true,
       completedAt: new Date(),
-      taskCode: code.toUpperCase().trim(),
+      taskCode: normalizedInput,
       interestEarned: dailyInterestAmount
     });
     
@@ -262,19 +377,15 @@ export const verifyDailyCheckIn = async (req, res) => {
     investment.lastCheckInDate = new Date();
     investment.codeClaimedAt = new Date();
     
-    // ✅ Clear code and set next generation time to 24 hours from now
     investment.claimCode = null; 
     investment.codeExpiresAt = null;
     investment.interestStatus = 'pending';
     
-    // ✅ Set codeGeneratedAt to 24 hours from now
-    // This ensures the next code is generated 24 hours after this check-in
     const nextCodeGenerationTime = new Date(new Date().getTime() + 24 * 60 * 60 * 1000);
     investment.codeGeneratedAt = nextCodeGenerationTime;
     
     console.log(`📅 Next code will be generated at: ${nextCodeGenerationTime.toLocaleString()}`);
     
-    // ✅ UPDATE CURRENT VALUE
     investment.totalInterestEarned = (investment.totalInterestEarned || 0) + dailyInterestAmount;
     investment.currentValue = investment.amount + investment.totalInterestEarned;
     
@@ -313,8 +424,6 @@ export const verifyDailyCheckIn = async (req, res) => {
       }
       
       const newTransactionId = `INV-${Date.now()}-${crypto.randomBytes(4).toString('hex').toUpperCase()}`;
-      
-      // ✅ Set first code generation time for new cycle
       const firstCodeGenerationTime = new Date(startDate.getTime() + 24 * 60 * 60 * 1000);
       
       newInvestment = await Investment.create({
@@ -345,7 +454,6 @@ export const verifyDailyCheckIn = async (req, res) => {
         currentValue: investment.amount,
         dailyInterestRate: investment.dailyInterestRate,
         totalInterestEarned: 0,
-        // ✅ Set first code generation time for new cycle
         codeGeneratedAt: firstCodeGenerationTime,
         claimCode: null,
         codeExpiresAt: null
@@ -460,7 +568,7 @@ export const getUserInvestments = async (req, res) => {
         status: inv.status || 'active',
         claimCode: inv.claimCode,
         codeExpiresAt: inv.codeExpiresAt,
-        codeGeneratedAt: inv.codeGeneratedAt, // ✅ NEW: Include next code generation time
+        codeGeneratedAt: inv.codeGeneratedAt,
         dailyTasks: inv.dailyTasks,
         daysRemaining: Math.max(0, inv.totalDays - inv.completedDays),
         cycleNumber: inv.cycleNumber || 1,
@@ -546,9 +654,13 @@ export const getClaimCode = async (req, res) => {
   }
 };
 
+// ==========================================
+// ✅ EXPORT ALL FUNCTIONS
+// ==========================================
 export default {
   createInvestment,
   getUserInvestments,
   verifyDailyCheckIn,
-  getClaimCode
+  getClaimCode,
+  validateDailyCode  // ✅ NEW
 };
