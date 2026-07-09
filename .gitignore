@@ -14,6 +14,9 @@ src/config/serviceAccountKey.json
 *.key
 *.secret
 
+src/config/firebase-admin.json
+**/firebase-admin.json
+
 # All JSON files in the config folder (Optional but safer)
 # src/config/*.json
 
