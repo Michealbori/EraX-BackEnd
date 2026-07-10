@@ -24,6 +24,8 @@ src/config/firebase-admin.json
 dist/
 build/
 
+.env
+
 # IDE
 .vscode/
 .idea/
