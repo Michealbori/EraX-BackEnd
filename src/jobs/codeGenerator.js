@@ -10,12 +10,43 @@ const generateClaimCode = () => {
 
 export const checkAndGenerateClaimCodes = async () => {
   try {
-    console.log('\n🔍 [CODE GENERATOR] Starting check...');
-    console.log(' Current time:', new Date().toLocaleString());
+    console.log('\n' + '='.repeat(70));
+    console.log('🔍 [CODE GENERATOR] Starting check...');
+    console.log('📅 Current time:', new Date().toLocaleString());
+    console.log('='.repeat(70));
     
     const now = new Date();
     
-    // ✅ Find investments needing codes
+    // ✅ Step 1: Find all active investments
+    const allActiveInvestments = await Investment.find({
+      status: 'active',
+      completedDays: { $lt: 30 }
+    });
+    
+    console.log(`\n📊 Total active investments: ${allActiveInvestments.length}`);
+    
+    if (allActiveInvestments.length === 0) {
+      console.log('ℹ️  No active investments found.');
+      console.log('='.repeat(70) + '\n');
+      return;
+    }
+    
+    // ✅ Step 2: Show details of each investment
+    console.log('\n📋 Investment Details:');
+    allActiveInvestments.forEach((inv, i) => {
+      const hoursAgo = inv.codeGeneratedAt ? 
+        Math.floor((now - inv.codeGeneratedAt) / (1000 * 60 * 60)) : 'Never';
+      
+      console.log(`\n  ${i+1}. Investment ID: ${inv._id}`);
+      console.log(`     Email: ${inv.email || 'MISSING'}`);
+      console.log(`     Day: ${inv.completedDays}/30`);
+      console.log(`     Has Code: ${inv.claimCode ? 'YES (' + inv.claimCode + ')' : 'NO'}`);
+      console.log(`     codeGeneratedAt: ${inv.codeGeneratedAt?.toLocaleString() || 'NOT SET'}`);
+      console.log(`     Hours since generation: ${hoursAgo}`);
+      console.log(`     Needs Code: ${!inv.claimCode && inv.codeGeneratedAt && inv.codeGeneratedAt <= now ? 'YES ✅' : 'NO ❌'}`);
+    });
+    
+    // ✅ Step 3: Find investments needing codes
     const investmentsNeedingCode = await Investment.find({
       status: 'active',
       completedDays: { $lt: 30 },
@@ -27,38 +58,26 @@ export const checkAndGenerateClaimCodes = async () => {
       codeGeneratedAt: { $lte: now }
     }).populate('user', 'email fullName');
 
-    console.log(`📊 Found ${investmentsNeedingCode.length} investments needing codes`);
+    console.log(`\n🎯 Investments needing codes: ${investmentsNeedingCode.length}`);
 
     if (investmentsNeedingCode.length === 0) {
-      console.log('ℹ️  No investments need codes. This is normal if:');
-      console.log('   - No active investments exist');
-      console.log('   - All investments have codes already');
-      console.log('   - Investments created less than 24 hours ago');
-      console.log('   - All investments completed 30 days\n');
-      
-      // Show all active investments for debugging
-      const allActive = await Investment.find({
-        status: 'active',
-        completedDays: { $lt: 30 }
-      }).select('email completedDays claimCode codeGeneratedAt');
-      
-      console.log(`📋 All active investments (${allActive.length}):`);
-      allActive.forEach((inv, i) => {
-        const hoursAgo = inv.codeGeneratedAt ? 
-          Math.floor((now - inv.codeGeneratedAt) / (1000 * 60 * 60)) : 'Never';
-        console.log(`   ${i+1}. Day ${inv.completedDays}/30 - Has code: ${inv.claimCode ? 'YES' : 'NO'} - Generated: ${hoursAgo}h ago`);
-      });
-      console.log('');
+      console.log('\nℹ️  No investments need codes right now.');
+      console.log('   Possible reasons:');
+      console.log('   - All investments already have codes');
+      console.log('   - Investments are less than 24 hours old');
+      console.log('   - codeGeneratedAt is in the future');
+      console.log('='.repeat(70) + '\n');
       return;
     }
 
     let successCount = 0;
     let failCount = 0;
 
+    // ✅ Step 4: Process each investment
     for (const investment of investmentsNeedingCode) {
       try {
         console.log(`\n💰 Processing investment: ${investment._id}`);
-        console.log(`   User: ${investment.email}`);
+        console.log(`   User Email: ${investment.email || investment.user?.email || 'MISSING'}`);
         console.log(`   Day: ${investment.completedDays + 1}/30`);
         
         // Generate unique code
@@ -72,7 +91,7 @@ export const checkAndGenerateClaimCodes = async () => {
         } while (attempts < 10);
 
         if (!claimCode) {
-          console.error('❌ Failed to generate unique code');
+          console.error('❌ Failed to generate unique code after 10 attempts');
           failCount++;
           continue;
         }
@@ -89,38 +108,57 @@ export const checkAndGenerateClaimCodes = async () => {
         console.log(`   Expires: ${investment.codeExpiresAt.toLocaleString()}`);
 
         // Send email
-        if (investment.email) {
+        const recipientEmail = investment.email || investment.user?.email;
+        
+        if (recipientEmail) {
           try {
-            console.log(`📧 Sending email to ${investment.email}...`);
-            await sendOTPEmail(investment.email, claimCode, 'daily_task');
+            console.log(`\n📧 Sending email to ${recipientEmail}...`);
+            console.log(`   Type: daily_task`);
+            console.log(`   Code: ${claimCode}`);
+            
+            const result = await sendOTPEmail(recipientEmail, claimCode, 'daily_task');
+            
             console.log(`✅ Email sent successfully!`);
+            console.log(`   Message ID: ${result.messageId}`);
             successCount++;
           } catch (emailError) {
-            console.error(`❌ Email failed:`, emailError.message);
-            console.error(`   Error code:`, emailError.code);
-            console.error(`   Status:`, emailError.status);
+            console.error(`\n❌ Email sending failed!`);
+            console.error(`   Error: ${emailError.message}`);
+            console.error(`   Stack: ${emailError.stack}`);
             failCount++;
           }
         } else {
-          console.warn(`⚠️  No email address found`);
+          console.error(`\n⚠️  No email address found for investment ${investment._id}`);
+          console.error(`   investment.email: ${investment.email}`);
+          console.error(`   investment.user?.email: ${investment.user?.email}`);
           failCount++;
         }
 
       } catch (error) {
-        console.error(`❌ Error processing investment:`, error.message);
+        console.error(`\n❌ Error processing investment ${investment._id}:`);
+        console.error(`   Error: ${error.message}`);
+        console.error(`   Stack: ${error.stack}`);
         failCount++;
       }
     }
 
-    console.log(`\n✅ [CODE GENERATOR] Completed: ${successCount} sent, ${failCount} failed\n`);
+    console.log(`\n${'='.repeat(70)}`);
+    console.log(`✅ [CODE GENERATOR] Completed`);
+    console.log(`   Success: ${successCount}`);
+    console.log(`   Failed: ${failCount}`);
+    console.log(`${'='.repeat(70)}\n`);
     
   } catch (error) {
-    console.error(' [CODE GENERATOR] Critical error:', error);
+    console.error('\n❌ [CODE GENERATOR] Critical error:');
+    console.error(`   Error: ${error.message}`);
+    console.error(`   Stack: ${error.stack}`);
   }
 };
 
 export const startCodeGenerator = () => {
-  console.log('\n🚀 [30-DAY CHALLENGE] Daily Code Generator starting...');
+  console.log('\n' + '='.repeat(70));
+  console.log('🚀 [30-DAY CHALLENGE] Daily Code Generator starting...');
+  console.log('='.repeat(70));
   
   const schedule = process.env.NODE_ENV === 'production' ? '0 9 * * *' : '*/20 * * * * *';
   
@@ -130,10 +168,14 @@ export const startCodeGenerator = () => {
   });
   
   console.log(`✅ Code generator scheduled: ${schedule}`);
-  console.log(`   Testing: Every 20 seconds\n`);
+  console.log(`   Environment: ${process.env.NODE_ENV || 'development'}`);
+  console.log(`   Testing: Every 20 seconds`);
+  console.log(`   Production: Daily at 9:00 AM`);
+  console.log('='.repeat(70));
   
-  // Run immediately on startup
+  // Run immediately on startup (after 5 seconds)
   setTimeout(() => {
+    console.log('\n🔥 Running initial code generation check...\n');
     checkAndGenerateClaimCodes();
-  }, 3000);
+  }, 5000);
 };
